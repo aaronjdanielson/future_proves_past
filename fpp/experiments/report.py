@@ -232,7 +232,8 @@ def _rebuild(run_payload: dict, tables_dir: Path):
     pretrained = run_payload.get("config", {}).get("pretraining") is not None
     from ..model.pool import CONTEXT_FIELDS
     widths = {"n_fields": len(fs.field_names), "n_static": len(fs.static_continuous)}
-    arch = {k: v for k, v in cfg.get("architecture", {}).items() if k in ("width", "hidden", "direction_film", "future_head")}   # D-070
+    from ..model.tower import ARCHITECTURE_KEYS
+    arch = {k: v for k, v in cfg.get("architecture", {}).items() if k in ARCHITECTURE_KEYS}   # D-070, D-074
     model = (ReferenceTower(vocab_sizes, static_sizes, SeasonParameters(), n_context=len(CONTEXT_FIELDS) if pretrained else 0, **widths, **arch)
              if kind == "tower" else AggregateBaseline(vocab_sizes, static_sizes, SeasonParameters(), **widths))
     return tab, ds, model

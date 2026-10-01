@@ -107,6 +107,9 @@ def main(argv=None) -> int:
     train.add_argument("--future-weight", type=float, default=0.0, help="D-070: weight of the later-career auxiliary target (0 = off)")
     train.add_argument("--game-dropout", type=float, default=0.0, help="D-070: drop each game of a channel with this probability during training")
     train.add_argument("--average-last", type=int, default=1, help="D-070: average the weights of this many epochs ending at the best (1 = off)")
+    train.add_argument("--head-hidden", type=int, default=0, help="D-074: GELU hidden layer of this size before the outcome heads (0 = registered linear heads)")
+    train.add_argument("--attention-pool", action="store_true", help="D-074: learned attention mean over the games in each channel's fusion input")
+    train.add_argument("--lr-decay", type=float, default=1.0, help="D-074: multiply the learning rate by this factor at every epoch without improvement (1 = off)")
     train.add_argument("--deploy", action="store_true",
                        help="deployment (D-051): fold = test season + 1, train through the test season - 1, early-stop on the test season, no evaluation")
     train.add_argument("--test-registration", type=Path,
@@ -181,7 +184,8 @@ def main(argv=None) -> int:
                               deploy=args.deploy, label_scope=args.label_scope, weighting=args.weighting, first_year_share=fy_share,
                               feature_schema=args.feature_schema, feature_blocks=blocks, cross_stop=args.cross_stop,
                               width=args.width, hidden=args.hidden, direction_film=args.direction_film, future_weight=args.future_weight,
-                              game_dropout=args.game_dropout, average_last=args.average_last)
+                              game_dropout=args.game_dropout, average_last=args.average_last,
+                              head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay)
             result = {"saved": str(args.out), "arm": args.arm, "model": args.model, "fold": args.fold, "seed": args.seed,
                       "counts": payload["counts"], "training": {"epochs_run": payload["training"]["epochs_run"],
                                                                  "best_stop_nll": payload["training"]["best_stop_nll"],

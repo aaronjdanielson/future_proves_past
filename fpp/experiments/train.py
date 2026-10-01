@@ -201,6 +201,13 @@ def _batches(examples, size: int, rng: np.random.Generator | None):
         yield [examples[j] for j in order[i:i + size]]
 
 
+def _decay_lr(optimizer, factor: float) -> float:
+    """D-074: multiply every parameter group's learning rate by ``factor``; returns the first group's new rate."""
+    for group in optimizer.param_groups:
+        group["lr"] = float(group["lr"]) * float(factor)
+    return float(optimizer.param_groups[0]["lr"])
+
+
 def marginal_batch(sb: SeasonBatch) -> SeasonBatch:
     """The same observations with overtime summed out: the paper's forecast target is
     $\\mathbf Y=(G,J,M,\\mathbf B)$, so scores marginalize $O$ even when training conditioned on it."""
@@ -274,7 +281,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             weighting: str = "player_balanced", first_year_share: float | None = None,
             feature_schema: str = "auto", feature_blocks=None, cross_stop: int | None = None,
             width: int = 32, hidden: int = 64, direction_film: bool = False, future_weight: float = 0.0,
-            game_dropout: float = 0.0, average_last: int = 1) -> dict:
+            game_dropout: float = 0.0, average_last: int = 1,
+            head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0) -> dict:
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {sorted(ARMS)}; D (C plus forward fine-tuning) is not implemented")
     if cross_stop not in (None, 0, 1):
@@ -398,7 +406,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         from ..model.tower import OutcomeHeads
         tower = ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_context=len(CONTEXT_FIELDS),
                                n_fields=n_fields, n_static=n_static, width=width, hidden=hidden, direction_film=direction_film,
-                               future_head=future_weight > 0)
+                               future_head=future_weight > 0, head_hidden=head_hidden, attention_pool=attention_pool)
         ckpt = Path(pretrained_dir) / f"pool_{fold_season}_{seed}.pt"
         if ckpt.exists():
             pretrained_info = load_manifest(ckpt.with_suffix(".json"))
@@ -412,7 +420,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         tower.heads = OutcomeHeads(base_model.reference())     # forward heads start at the fitted intercepts, as in A
     else:
         tower = (ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static, width=width, hidden=hidden,
-                                direction_film=direction_film, future_head=future_weight > 0) if model_kind == "tower"
+                                direction_film=direction_film, future_head=future_weight > 0, head_hidden=head_hidden,
+                                attention_pool=attention_pool) if model_kind == "tower"
                  else AggregateBaseline(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static))
     optimizer = torch.optim.Adam(tower.parameters(), lr=lr)
     curve, best, best_state, bad_epochs = [], math.inf, None, 0
@@ -516,6 +525,9 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             best_state = {k: v.detach().clone() for k, v in tower.state_dict().items()}
         else:
             bad_epochs += 1
+            if lr_decay < 1.0:
+                _decay_lr(optimizer, lr_decay)        # D-074: a smaller step on a plateau, before patience runs out
+        curve[-1]["lr"] = float(optimizer.param_groups[0]["lr"])
         if average_last > 1:
             epoch_states[epoch + 1] = {k: v.detach().clone() for k, v in tower.state_dict().items()}
         _checkpoint(epoch + 1)
@@ -608,7 +620,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "weighting": weighting, "first_year_share": first_year_share, "stop_criterion": stop_criterion,
                    "feature_schema": {**fs.describe(), "missing_game_fields": list(store.missing_fields)},
                    "architecture": getattr(tower, "architecture", dict(ARCHITECTURE_DEFAULTS)),
-                   "future_weight": future_weight, "game_dropout": game_dropout, "average_last": average_last,
+                   "future_weight": future_weight, "game_dropout": game_dropout, "average_last": average_last, "lr_decay": lr_decay,
                    "post_first_season_logs": ("excluded from every input channel, the pool and reconstruction (D-041 strict control)"
                                               if exclude_post_first_season_logs else "included"),
                    "excluded_game_rows": int(ds.excluded_rows.sum()) if ds.excluded_rows is not None else 0,

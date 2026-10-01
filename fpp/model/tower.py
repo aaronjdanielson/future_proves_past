@@ -22,6 +22,12 @@ direction (forward or reconstruction), initialized at the identity; and
 ``future_head`` adds a linear head on $u$ predicting a player's later
 professional production (the "future" auxiliary target). The defaults
 reproduce the registered architecture exactly.
+
+Low-hanging-fruit options (D-074): ``attention_pool`` adds a learned,
+masked softmax attention mean over the game encodings to each channel's
+fusion input (scores zero-initialized, so attention starts uniform), and
+``head_hidden`` puts a GELU hidden layer before the parameter map of the
+outcome heads (0 = the registered linear heads).
 """
 from __future__ import annotations
 
@@ -67,12 +73,19 @@ def masked_mean(e: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
 class ChannelPool(nn.Module):
     """Fixed-weight summaries, contrasts, evidence, and fusion for one channel."""
 
-    def __init__(self, half_life_years: float = F.HALF_LIFE_YEARS, width: int = D, hidden: int = HIDDEN):
+    def __init__(self, half_life_years: float = F.HALF_LIFE_YEARS, width: int = D, hidden: int = HIDDEN, attention: bool = False):
         super().__init__()
         self.half_life = half_life_years
         self.width = width
         self.season_projection = nn.Linear(2 * width + 2, width)
         n_in = 4 * width + width + 1 + len(F.EVIDENCE_NAMES) + 3   # hL, hR, dRL, dseason, z_sum, flag, evidence, m_hist
+        # D-074: a learned attention mean h_A over the game encodings joins the fusion input; zero-initialized scores
+        # make the attention uniform at the start, so training decides which games count.
+        self.score = nn.Linear(width, 1) if attention else None
+        if self.score is not None:
+            nn.init.zeros_(self.score.weight)
+            nn.init.zeros_(self.score.bias)
+            n_in += width
         self.fusion = _mlp(n_in, width, hidden)
         self.empty = nn.Parameter(torch.zeros(width))
 
@@ -89,7 +102,12 @@ class ChannelPool(nn.Module):
         z_flag = torch.zeros(B, 1, device=e.device)
         present = ch["present"].float().unsqueeze(-1)
         m_hist = torch.cat([present, flags], dim=-1)
-        fused = self.fusion(torch.cat([h_l, h_r, d_rl, d_season, z_sum, z_flag, ch["evidence"], m_hist], dim=-1))
+        parts = [h_l, h_r, d_rl, d_season, z_sum, z_flag, ch["evidence"], m_hist]
+        if self.score is not None:
+            scores = self.score(e).squeeze(-1).masked_fill(~valid, -1e9)   # [B, T]; invalid rows get no weight
+            attn = torch.softmax(scores, dim=1) * valid.float()
+            parts.insert(3, (e * attn.unsqueeze(-1)).sum(dim=1))          # h_A
+        fused = self.fusion(torch.cat(parts, dim=-1))
         return torch.where(present.bool(), fused, self.empty.expand(B, self.width))
 
     def contrasts(self, e, ch, w):
@@ -175,13 +193,16 @@ class OutcomeHeads(nn.Module):
     """
     ORDER = ["pi_g", "alpha_g", "beta_g", "alpha_j", "beta_j", "nu", "alpha_m", "beta_m", "pi_m"]
 
-    def __init__(self, reference: SeasonParameters | None = None, init_scale: float = 0.05, width: int = D):
+    def __init__(self, reference: SeasonParameters | None = None, init_scale: float = 0.05, width: int = D, head_hidden: int = 0):
         super().__init__()
         p = reference or SeasonParameters()
         prod = p.production
         fl = PARAMETER_FLOORS
         self.n_out = 9 + 2 * len(RATE_NAMES) + 2 * len(MAKE_ATTEMPTS)
-        self.linear = nn.Linear(width, self.n_out)
+        # D-074: an optional GELU hidden layer before the parameter map (0 = the registered linear heads); the map's
+        # weights are scaled down at init either way, so the heads start at the reference intercepts.
+        self.pre = nn.Sequential(nn.Linear(width, head_hidden), nn.GELU()) if head_hidden > 0 else None
+        self.linear = nn.Linear(head_hidden if head_hidden > 0 else width, self.n_out)
         with torch.no_grad():
             self.linear.weight.mul_(init_scale)
             bias = [_logit_within(p.participation_probability), _inverse_softplus_above(p.games_alpha, fl["alpha_g"]),
@@ -199,7 +220,7 @@ class OutcomeHeads(nn.Module):
         self.foul_limit_per_game = int(prod.foul_limit_per_game)
 
     def forward(self, u: torch.Tensor) -> dict:
-        raw = self.linear(u).to(DTYPE64)
+        raw = self.linear(u if self.pre is None else self.pre(u)).to(DTYPE64)
         k, r, m = 9, len(RATE_NAMES), len(MAKE_ATTEMPTS)
         fl = PARAMETER_FLOORS
         lo, hi = PROBABILITY_BOUNDS
@@ -241,7 +262,9 @@ class PretrainHead(nn.Module):
         return self.heads(self.net(torch.cat(parts, dim=-1)))
 
 
-ARCHITECTURE_DEFAULTS = {"width": D, "hidden": HIDDEN, "direction_film": False, "future_head": False}
+ARCHITECTURE_DEFAULTS = {"width": D, "hidden": HIDDEN, "direction_film": False, "future_head": False,
+                         "head_hidden": 0, "attention_pool": False}
+ARCHITECTURE_KEYS = tuple(ARCHITECTURE_DEFAULTS)      # the constructor arguments a recorded architecture may carry
 
 
 class ReferenceTower(nn.Module):
@@ -249,15 +272,17 @@ class ReferenceTower(nn.Module):
 
     def __init__(self, vocab_sizes: list[int], static_vocab_sizes: list[int], reference: SeasonParameters | None = None,
                  n_context: int = 0, n_fields: int | None = None, n_static: int | None = None,
-                 width: int = D, hidden: int = HIDDEN, direction_film: bool = False, future_head: bool = False):
+                 width: int = D, hidden: int = HIDDEN, direction_film: bool = False, future_head: bool = False,
+                 head_hidden: int = 0, attention_pool: bool = False):
         super().__init__()
-        self.architecture = {"width": int(width), "hidden": int(hidden), "direction_film": bool(direction_film), "future_head": bool(future_head)}
+        self.architecture = {"width": int(width), "hidden": int(hidden), "direction_film": bool(direction_film), "future_head": bool(future_head),
+                             "head_hidden": int(head_hidden), "attention_pool": bool(attention_pool)}
         # Input widths follow the run's feature schema (D-065); the defaults are the registered v7 widths.
         self.encoder = GameEncoder(len(F.FIELD_NAMES) if n_fields is None else int(n_fields), vocab_sizes, width=width, hidden=hidden)
-        self.pool_intl = ChannelPool(width=width, hidden=hidden)
-        self.pool_ncaa = ChannelPool(width=width, hidden=hidden)
+        self.pool_intl = ChannelPool(width=width, hidden=hidden, attention=attention_pool)
+        self.pool_ncaa = ChannelPool(width=width, hidden=hidden, attention=attention_pool)
         self.translator = Translator(static_vocab_sizes, n_static, width=width, hidden=hidden, direction_film=direction_film)
-        self.heads = OutcomeHeads(reference, width=width)
+        self.heads = OutcomeHeads(reference, width=width, head_hidden=head_hidden)
         self.pretrain_head = PretrainHead(self.encoder, n_context, reference, width=width, hidden=hidden) if n_context else None
         self.future_head = nn.Linear(width, 1) if future_head else None
 

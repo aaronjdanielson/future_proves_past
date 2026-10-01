@@ -1004,17 +1004,34 @@ def _gate(units: pd.DataFrame):
     return reasons, eligible, evidence
 
 
+FRESHMAN_CLASSES = ("Fr", "RS-Fr", "Fr (Ineligible)")     # upstream class labels of a first-year player
+
+
 def career_history(all_rosters: pd.DataFrame, units: pd.DataFrame) -> pd.DataFrame:
     """First D1 roster season, first-season flag and seasons completed per unit, from every upstream roster season.
 
     Before D-066 these were computed from the tables' season range only (2003 on), so every 2003 unit was a "first
     season" (2,633 eligible returners among them) and seasons completed were undercounted through 2006. Roster rows
-    after the tables' range (e.g. next season's roster) cannot change either quantity for earlier units."""
+    after the tables' range (e.g. next season's roster) cannot change either quantity for earlier units.
+
+    Role (D-074): the upstream rule turns a first-year player into ``transfer_d1`` when any tracked international game
+    precedes the season, so the label depends on when the game logs were loaded: the training seasons were classified
+    in April 2026 before most logs existed (897 of 1,377 first-year players with club or youth games read ``freshman``,
+    918 of 935 with national-team games only), the 2026–27 roster after them (every such player ``transfer_d1``).
+    Here the role is a function of NCAA roster history alone: a first D1 season in a freshman class is ``freshman``
+    whatever the player did abroad, which the game towers, the evidence vector and the prior-league level carry. The
+    upstream reading is kept as ``role_upstream`` for the audit."""
     history = all_rosters[["player_id", "season"]].drop_duplicates()
     first = history.groupby("player_id")["season"].min().rename("first_season")
     out = units.drop(columns=[c for c in ("first_season",) if c in units]).merge(first, left_on="player_id", right_index=True, how="left")
     out["first_year"] = out["season"] == out["first_season"]
     out["ncaa_seasons_completed"] = _prior_seasons(history, out)
+    if "role" in out and "class" in out:
+        out["role_upstream"] = out["role"]
+        hit = (out["first_year"].to_numpy(dtype=bool, na_value=False)
+               & out["class"].astype(object).isin(FRESHMAN_CLASSES).to_numpy()
+               & (out["role"].astype(object) == "transfer_d1").to_numpy())
+        out.loc[hit, "role"] = "freshman"
     return out
 
 
@@ -1192,5 +1209,9 @@ def build_tables(stores: Stores, *, seasons=(2003, 2026), lag_days: int = 1, gap
     nonncaa = games["source"] != "ncaa"
     audit["nonncaa_game_rows_with_dob_share"] = float(games.loc[nonncaa, "player_id"].isin(players_table.loc[players_table["dob"].notna(), "player_id"]).mean())
     audit["recruit_status"] = units.loc[units["likelihood_eligible"] & units["first_year"], "recruit_status"].value_counts().to_dict()
+    if "role_upstream" in units:
+        # D-074: first-year freshman-class units whose upstream role was transfer_d1 (tracked international history), by season.
+        changed = units["role"].astype(object).to_numpy() != units["role_upstream"].astype(object).to_numpy()
+        audit["role_normalized_to_freshman"] = {int(s): int(n) for s, n in units.loc[changed].groupby("season").size().items()}
     audit["feature_blocks"] = block_coverage(units, games)
     return {"games": games, "competition_periods": periods, "units": units, "players": players_table, "audit": audit, **aux}
