@@ -62,7 +62,11 @@ class FoldDataset:
               index: dict | None = None, normalizer_rows: int = 400_000, seed: int = 0,
               exclude_assumed_zeros: bool = False, k_values=(1, 2, 3), max_years: float | None = 4,
               exclude_post_first_season: bool = False, label_scope: str = "all",
-              weighting: str = "player_balanced", first_year_share: float | None = None) -> "FoldDataset":
+              weighting: str = "player_balanced", first_year_share: float | None = None,
+              normalizer_exclusion: bool = True) -> "FoldDataset":
+        """``normalizer_exclusion`` (D-072/D-078): whether the strict control's normalization statistics exclude the
+        same rows as its inputs. True for every run trained after 2026-09-30 21:28; a rebuild of an earlier strict
+        control must pass False to reproduce the statistics it was trained with (``report.normalizer_exclusion``)."""
         validate_weighting(weighting, first_year_share)
         m = fold_membership(tables, fold, test_cohort_players=test_cohort_players, index=index,
                             k_values=k_values, max_years=max_years, label_scope=label_scope)
@@ -81,7 +85,7 @@ class FoldDataset:
         cutoff = _days(fold.training_cutoff)
         # Normalizer on training games only: released by the training cutoff, players not held out.
         allowed = (store.release <= cutoff) & ~np.isin(store.player_id, np.fromiter(m["heldout_players"], dtype=np.int64))
-        if excluded is not None:
+        if excluded is not None and normalizer_exclusion:
             allowed &= ~excluded          # D-072: the strict control's normalization statistics exclude the same rows as its inputs
         rows = np.flatnonzero(allowed)
         rng = np.random.default_rng(seed)

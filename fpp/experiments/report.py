@@ -208,7 +208,27 @@ def component_diagnostics(lik, examples, model, params_all, units, masks, *, bat
             "expected_latent_minutes_mean": float(latent[np.isfinite(latent)].mean())}
 
 
-def _rebuild(run_payload: dict, tables_dir: Path):
+NORMALIZER_FIX_TIME = "2026-09-30T21:28:00"     # D-072: strict-control normalization statistics exclude the excluded rows from here on
+
+
+def normalizer_exclusion(run_payload: dict, run_dir=None) -> bool:
+    """Which normalization convention a run was trained under (D-078). Manifests written after the fix record it as
+    ``config["normalizer_exclusion"]``; for earlier manifests the run's completion time (``status.json``) decides,
+    which is exact because no strict control was training across the fix. Only strict controls are affected; for the
+    other arms the flag changes nothing."""
+    cfg = run_payload.get("config", {})
+    if "normalizer_exclusion" in cfg:
+        return bool(cfg["normalizer_exclusion"])
+    if run_dir is not None:
+        status = Path(run_dir) / "status.json"
+        if status.exists():
+            import json as _json
+            updated = _json.loads(status.read_text()).get("updated_at", "")
+            return str(updated) >= NORMALIZER_FIX_TIME
+    return False
+
+
+def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None):
     tab = read_tables(tables_dir)
     units = tab["units"]
     protocol_test = int(units["season"].max())
@@ -225,7 +245,8 @@ def _rebuild(run_payload: dict, tables_dir: Path):
                            k_values=tuple(rw.get("k_values", (1, 2, 3))), max_years=rw.get("max_years", 4),
                            exclude_post_first_season=str(cfg.get("post_first_season_logs", "included")).startswith("excluded"),
                            label_scope=cfg.get("label_scope", "all"),
-                           weighting=cfg.get("weighting", "player_balanced"), first_year_share=cfg.get("first_year_share"))
+                           weighting=cfg.get("weighting", "player_balanced"), first_year_share=cfg.get("first_year_share"),
+                           normalizer_exclusion=normalizer_exclusion(run_payload, run_dir))
     vocab_sizes = [len(store.vocab[c]) for c in F.CATEGORICAL]
     static_sizes = [len(v) for v in ds.static_vocab.values()]
     kind = run_payload.get("model", "tower")
@@ -244,7 +265,7 @@ def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: i
     run = Path(run)
     payload = load_manifest(run / "run.json")
     per_unit = pd.read_csv(run / "per_unit.csv")
-    tab, ds, model = _rebuild(payload, tables)
+    tab, ds, model = _rebuild(payload, tables, run)
     state = torch.load(run / "tower_state.pt", weights_only=True)
     model.load_state_dict(state)
     model.eval()
@@ -313,7 +334,7 @@ def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: i
         other_payload = load_manifest(compare / "run.json")
         if int(other_payload["fold"]) != int(payload["fold"]) or int(other_payload["seed"]) != int(payload["seed"]):
             raise ValueError("The comparison run must share the fold and seed (same evaluation examples and normalizer)")
-        _, ds_other, other_model = _rebuild(other_payload, tables)
+        _, ds_other, other_model = _rebuild(other_payload, tables, compare)
         # The comparison checkpoint is scored on inputs built with ITS OWN normalizer and vocabularies
         # (preprocessing is part of the model), on the same units, aligned by unit id (D-034 addendum).
         other_examples = ds_other.evaluation_examples()

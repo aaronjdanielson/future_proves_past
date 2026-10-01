@@ -624,6 +624,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "post_first_season_logs": ("excluded from every input channel, the pool and reconstruction (D-041 strict control)"
                                               if exclude_post_first_season_logs else "included"),
                    "excluded_game_rows": int(ds.excluded_rows.sum()) if ds.excluded_rows is not None else 0,
+                   "normalizer_exclusion": True,     # D-072/D-078: the normalization statistics exclude the same rows as the inputs
                    "reconstruction_windows": {"max_years": recon_max_years, "k_values": [k for k in recon_k],
                                               "horizon": "training cutoff" if recon_max_years is None else f"{recon_max_years} years after the season end",
                                               "windows": int(len(ds.windows)), "units": int(ds.windows["unit_id"].nunique()) if len(ds.windows) else 0},
