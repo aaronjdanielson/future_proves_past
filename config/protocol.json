@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "specification": {
+    "revision": "6.3",
+    "source": "paper/international_ncaa_translation.tex",
+    "sha256": "f05e26e1c7b0ee7c36a3ffbaec3ab5b1ac4fa6aeccec882b9e27b9221b99627c",
+    "decision": "D-019"
+  },
+  "calendar": {
+    "season_label": "end_year",
+    "season_assignment": {
+      "order": ["provider_identifier", "competition_period", "fallback_rollover"],
+      "fallback_rollover_month_day": "08-01",
+      "mapping_version": "season-map-v2",
+      "superseded_rule": "season-map-v1 rolled on 06-01 and mislabelled June playoff games",
+      "audit": "records whose assigned season differs from the original label are listed, never silently relabelled"
+    },
+    "forecast_month_day": "10-01",
+    "forecast_in_opening_year": true,
+    "training_days_before_forecast": 1,
+    "assumed_provider_lag_days": 1
+  },
+  "reconstruction": {
+    "first_k_seasons": [
+      1,
+      2,
+      3
+    ],
+    "max_horizon_years": 4,
+    "clip_to_training_cutoff": true
+  },
+  "experiment": {
+    "development_through": 2023,
+    "selection_seasons": [
+      2024,
+      2025
+    ],
+    "test_season": 2026,
+    "max_selectable_finalists": 3,
+    "fixed_controls": [
+      "B",
+      "C_shuf"
+    ],
+    "arms": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "C_shuf"
+    ],
+    "primary_contrast": "mean_nll_B - mean_nll_C",
+    "seeds": [
+      20260901,
+      20260902,
+      20260903
+    ]
+  },
+  "initial_context_tier": "T0",
+  "numerical": {
+    "overtime_log_tolerance": 5e-05,
+    "quadrature_log_tolerance": 5e-05,
+    "poisson_tail_tolerance": 1e-08
+  },
+  "real_data_gate": {
+    "dated_records_required": true,
+    "complete_outcomes_required": true,
+    "registered_recording_provenance_required": true
+  }
+}

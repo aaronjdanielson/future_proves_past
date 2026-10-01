@@ -1,0 +1,283 @@
+group,name,player_id,team,rank_247_name,note,nationality,class,history,n_club_games,n_national_games,n_showcase_games,n_tracked_games,competitions,last_game,of_interest
+A,Tyran Stokes,205816,Kansas,Tyran Stokes,,United States,Fr,national only,0,20,3,23,"U19-World-Cup 2025,U16-AmeriCup 2023,U17-World-Cup 2024; nike_hoop_summit,mcdonalds,jordan_classic",2026-04-17,1
+A,"Brandon McCoy, Jr.",206210,Michigan,Brandon McCoy Jr.,expected to miss 2026-27 (ACL); forecast is conditional on playing,United States,Fr,national only,0,19,3,22,"U19-World-Cup 2025,U16-AmeriCup 2023,U17-World-Cup 2024; nike_hoop_summit,mcdonalds,jordan_classic",2026-04-17,1
+A,Caleb Holt,199618,Arizona,Caleb Holt,,United States,Fr,national only,0,20,2,22,"U19-World-Cup 2025,U16-AmeriCup 2023,U17-World-Cup 2024; nike_hoop_summit,mcdonalds",2026-04-11,1
+A,"Jordan Smith, Jr.",201516,Arkansas,Jordan Smith Jr.,,United States,Fr,national only,0,14,2,16,"U19-World-Cup 2025,U17-World-Cup 2024; nike_hoop_summit,mcdonalds",2026-04-11,1
+A,Bruce Branch III,229840,Brigham Young,Bruce Branch III,,United States,Fr,national only,0,5,3,8,"U18-AmeriCup 2026; nike_hoop_summit,mcdonalds,jordan_classic",2026-06-07,1
+A,Taylen Kinney,222230,Kansas,Taylen Kinney,,United States,Fr,club + national,2,5,1,8,adidas-Next-Generation-Tournament; U18-AmeriCup 2026; mcdonalds,2026-06-07,1
+A,Jasiah Jervis,212665,Michigan State,Jasiah Jervis,,United States,Fr,national only,0,5,1,6,U18-AmeriCup 2026; mcdonalds,2026-06-07,1
+A,Ethan Taylor,218630,Michigan State,Ethan Taylor,,United States,Fr,national only,0,5,1,6,U18-AmeriCup 2026; nike_hoop_summit,2026-06-07,1
+A,Caleb Gaskins,205818,Miami (FL),Caleb Gaskins,,United States,Fr,national only,0,4,2,6,"U18-AmeriCup 2026; nike_hoop_summit,mcdonalds",2026-06-07,1
+A,Colben Landrew,235433,UConn,Colben Landrew,,United States,Fr,national only,0,5,1,6,U18-AmeriCup 2026; jordan_classic,2026-06-07,1
+B,Christian Collins,235079,USC,Christian Collins,,United States,Fr,showcase only,0,0,3,3,"nike_hoop_summit,mcdonalds,jordan_classic",2026-04-17,1
+B,Cameron Williams,237636,Duke,Cameron Williams,,United States,Fr,showcase only,0,0,3,3,"nike_hoop_summit,mcdonalds,jordan_classic",2026-04-17,1
+B,"Jason Crowe, Jr.",211741,Missouri,Jason Crowe Jr.,,United States,Fr,showcase only,0,0,3,3,"nike_hoop_summit,mcdonalds,jordan_classic",2026-04-17,1
+B,J.J. Andrews,216017,Arkansas,JJ Andrews,,United States,Fr,showcase only,0,0,2,2,"mcdonalds,jordan_classic",2026-04-17,1
+B,"Deron Rippey, Jr.",213210,Duke,Deron Rippey Jr.,,United States,Fr,showcase only,0,0,2,2,"nike_hoop_summit,mcdonalds",2026-04-11,1
+B,Anthony Thompson,229186,Ohio State,Anthony Thompson,,United States,Fr,showcase only,0,0,1,1,mcdonalds,2026-03-31,1
+B,Bryson Howard,249675,Duke,Bryson Howard,,United States,Fr,showcase only,0,0,1,1,jordan_classic,2026-04-17,1
+C,Luigi Suigo,201784,Villanova,,,Italy,Fr,club + national,49,25,0,74,"Italian-Lega-Basket-Serie-A,Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament,Adriatic-League-Liga-ABA,Serbian-RK-Cup,Adriatic-Junior-Liga-ABA; European-World-Cup-Qualifier 2025,U17-World-Cup 2024,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024",2026-04-26,1
+C,Mark Morano Mahmutovic,201889,Syracuse,,,Slovenia,Fr,club + national,47,21,0,68,"Adriatic-Junior-Liga-ABA,Podgorica-Tournament-ANGT,Slovenian-Spar-Cup,Slovenian-SKL,Zadar-Tournament-ANGT; U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2024,U18-Euro-Championship-A 2025",2026-04-23,1
+C,Kaan Onat,201930,Tennessee-Martin,,,Turkiye,Fr,club + national,22,37,0,59,"Turkish-TBL,Belgrade-Tournament-ANGT; U20-Euro-Championship-A 2026,U16-Euro-Championship-A 2023,U17-World-Cup 2024,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024,U18-Euro-Championship-A 2025",2026-07-19,1
+C,Arturas Butajevas,219851,Florida,,,Lithuania,Fr,club + national,29,21,0,50,"Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament,Spanish-ACB,ULM-Tournament-ANGT,Basketball-Champions-League-Europe,Spanish-Liga-U; U16-Euro-Championship-A 2023,U17-World-Cup 2024,U18-Euro-Championship-A 2025",2026-01-03,1
+C,Stefan Plisnic,170048,VCU,,,Serbia,Fr,club + national,30,19,0,49,"Adriatic-Junior-Liga-ABA,Belgrade-Tournament-ANGT,Serbian-KLS; U19-World-Cup 2025,U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024",2025-07-06,1
+C,Nikola Kusturica,251430,UCLA,,,Serbia,Fr,club + national,34,14,0,48,"Euroleague,Spanish-ACB,Spanish-Liga-U,Bologna-Tournament-ANGT,adidas-Next-Generation-Tournament; U17-World-Cup 2026,U16-Euro-Championship-A 2025",2026-07-05,1
+C,Gunars Grinvalds,219838,UCLA,,,Latvia,Fr,club + national,33,14,0,47,"Munich-Tournament-ANGT,adidas-Next-Generation-Tournament,Euroleague,Spanish-ACB,Spanish-Liga-U,Abu-Dhabi-Tournament-ANGT; U16-Euro-Championship-A 2023,U16-Euro-Championship-A 2024",2026-05-24,1
+C,Joaquim Boumtje-Boumtje,254385,Duke,Joaquim Boumtje-Boumtje,US national; Barcelona club path,Spain/United States,Fr,club + national,36,7,0,43,"Spanish-Liga-U,Bologna-Tournament-ANGT,adidas-Next-Generation-Tournament; U17-World-Cup 2026",2026-07-05,1
+C,Miikka Muurinen,219771,Arkansas,Miikka Muurinen,,Finland,Fr,club + national,18,22,1,41,"Dubai-Tournament-ANGT,Euroleague,Adriatic-League-Liga-ABA; Olympic-Qualifier--Spain 2024,EuroBasket 2025,European-World-Cup-Qualifier 2025,U16-Euro-Championship-A 2023; nike_hoop_summit",2026-04-11,1
+C,Milos Sojic,201878,TCU,,,Serbia,Fr,club + national,3,34,0,37,"Adriatic-Junior-Liga-ABA; U19-World-Cup 2025,U20-Euro-Championship-A 2026,U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024",2026-07-19,1
+C,Lazar Stojkovic,219924,St. John's,,,Serbia,Fr,club + national,29,7,0,36,"Dubai-Tournament-ANGT,Serbian-KLS,Belgrade-Tournament-ANGT,Serbian-RK-Cup; U18-Euro-Championship-A 2025",2026-03-07,1
+C,Marcus Moller,201729,Michigan,,,Denmark,Fr,club + national,13,22,0,35,"Spanish-Liga-U; EuroBasket-Qualifiers 2024,European-World-Cup-Pre-Qualifier 2024,European-World-Cup-Qualifier 2025,U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2024",2026-01-03,1
+C,Martin Tonejc,213825,Rutgers,,,Slovenia,Fr,club + national,16,7,0,23,"Adriatic-Junior-Liga-ABA,Podgorica-Tournament-ANGT,Slovenian-Spar-Cup,Zadar-Tournament-ANGT,Slovenian-SKL; Albert-Schweitzer-Tournament 2024",2026-06-01,1
+C,Vuk Lazarevic,227017,Ohio State,,no bio (dob/height missing),Serbia,Fr,club only,2,0,0,2,Adriatic-Junior-Liga-ABA,2024-11-23,1
+A,Clemens Sokolov,233232,Indiana,Clemens Sokolov,,Germany/United States,Fr,club + national,51,17,0,68,"German-Pro-B,ULM-Tournament-ANGT,Basketball-Champions-League-Europe; U17-World-Cup 2024,Albert-Schweitzer-Tournament 2024,U18-Euro-Championship-A 2025",2026-03-28,0
+A,Julius Price,192195,Stanford,Julius Price,,United States/Sweden,Fr,club + national,3,19,0,22,"Swedish-Basketligan; European-World-Cup-Qualifier 2025,U16-Euro-Championship-B 2022,U18-Euro-Championship-A 2023,U18-Euro-Championship-A 2024",2026-08-30,0
+A,Frank Siaca,218866,Fordham,Frank Siaca,,United States/Dominican Republic,Fr,national only,0,18,0,18,"U19-World-Cup 2025,U17-CentroBasket 2023,U18-AmeriCup 2024",2025-07-06,0
+A,"R.J. Livingston, Jr.",236726,Texas State,"R.J. Livingston, Jr.",,United States/Italy,Fr,national only,0,14,0,14,"U18-Euro-Championship-A 2026,U16-Euro-Championship-A 2024",2026-08-02,0
+A,Mason Santiago,217183,Saint Peter's,Mason Santiago,,United States/Puerto Rico,Fr,national only,0,13,0,13,"U16-AmeriCup 2023,U17-World-Cup 2024",2024-07-07,0
+A,"Ian Parham, Jr.",218847,Texas-RGV,"Ian Parham, Jr.",,United States/Belize,Fr,national only,0,11,0,11,"U17-CentroBasket 2023,U18-AmeriCup 2024",2024-06-09,0
+A,Kole Grandison,235373,Texas State,Kole Grandison,,United States,Fr,club + national,2,7,0,9,adidas-Next-Generation-Tournament; U17-World-Cup 2024,2025-05-24,0
+A,,235366,Arkansas,,,Guinea/United States,Fr,national only,0,7,1,8,U17-World-Cup 2024; nike_hoop_summit,2026-04-11,0
+A,Damian Jung,267778,Northeastern,Damian Jung,,United States/Germany,Fr,national only,0,7,0,7,U20-Euro-Championship-A 2026,2026-07-19,0
+A,Gabriel Sularski,234132,California,Gabriel Sularski,,United States/Poland,Fr,national only,0,7,0,7,U16-Euro-Championship-A 2024,2024-08-17,0
+A,Aziz Olajuwon,234999,Stanford,Aziz Olajuwon,,United States/Canada,Fr,national only,0,7,0,7,U19-World-Cup 2025,2025-07-06,0
+A,"Frank Belibi, Jr.",225688,Florida Atlantic,"Frank Belibi, Jr.",,United States/Cameroon,Fr,national only,0,7,0,7,U19-World-Cup 2025,2025-07-06,0
+A,Will Dopfer,251614,Longwood,Will Dopfer,,United States/Germany,Fr,national only,0,6,0,6,Albert-Schweitzer-Tournament 2026,2026-04-11,0
+A,Zoje Owinje,237857,Duquesne,Zoje Owinje,,United States/Nigeria,Fr,national only,0,6,0,6,U18-AfroBasket 2024,2024-09-14,0
+A,Jacob Zhu,244362,Western Carolina,Jacob Zhu,,United States/China,Fr,national only,0,6,0,6,U19-World-Cup 2025,2025-07-06,0
+A,Favour Ibe,235127,Virginia,Favour Ibe,,United States/Nigeria,Fr,national only,0,6,0,6,U18-AfroBasket 2024,2024-09-14,0
+A,Quentin Coleman,249734,Illinois,Quentin Coleman,,United States,Fr,national only,0,5,1,6,U18-AmeriCup 2026; jordan_classic,2026-06-07,0
+A,Jalen Montonati,205815,Oklahoma State,Jalen Montonati,,United States/Italy,Fr,national only,0,6,0,6,U16-AmeriCup 2023,2023-06-11,0
+A,"Marcus Spears, Jr.",236327,Texas,"Marcus Spears, Jr.",,United States,Fr,national only,0,6,0,6,U16-AmeriCup 2025,2025-06-08,0
+A,Caleb Ourigou,237767,Arkansas,Caleb Ourigou,,United States/Ivory Coast,Fr,national only,0,5,0,5,U18-AfroBasket 2024,2024-09-12,0
+B,Adam Oumiddoch,209656,Villanova,Adam Oumiddoch,,United States,Fr,club only,5,0,0,5,adidas-Next-Generation-Tournament,2025-05-24,0
+B,Lincoln Cosby,218045,Michigan,Lincoln Cosby,,United States,Fr,club only,3,0,0,3,adidas-Next-Generation-Tournament,2024-05-25,0
+B,,209769,Oregon,,,United States,Fr,showcase only,0,0,3,3,"nike_hoop_summit,jordan_classic",2026-04-17,0
+B,Marcis Ponder,220360,Florida State,Marcis Ponder,,United States,Fr,club only,3,0,0,3,adidas-Next-Generation-Tournament,2024-05-25,0
+B,Parker Robinson,218291,Oklahoma State,Parker Robinson,,United States,Fr,club only,3,0,0,3,adidas-Next-Generation-Tournament,2024-05-25,0
+B,Isaac Ellis,191291,Louisville,Isaac Ellis,,United States,Fr,club only,3,0,0,3,adidas-Next-Generation-Tournament,2024-05-25,0
+B,,225031,Michigan,,,United States,Fr,showcase only,0,0,2,2,"mcdonalds,jordan_classic",2026-04-17,0
+B,,227251,USC,,,United States,Fr,showcase only,0,0,2,2,"mcdonalds,jordan_classic",2026-04-17,0
+B,,209895,Alabama,,,United States,Fr,showcase only,0,0,2,2,"mcdonalds,jordan_classic",2026-04-17,0
+B,Asher Elson,235985,Xavier,Asher Elson,,United States,Fr,club only,2,0,0,2,adidas-Next-Generation-Tournament,2025-05-24,0
+B,Collin Paul,228149,Florida State,Collin Paul,,United States,Fr,club only,2,0,0,2,adidas-Next-Generation-Tournament,2025-05-24,0
+B,,205817,Baylor,,,United States,Fr,showcase only,0,0,2,2,"nike_hoop_summit,jordan_classic",2026-04-17,0
+B,,218231,Texas,,,United States,Fr,showcase only,0,0,2,2,"mcdonalds,jordan_classic",2026-04-17,0
+B,Josh Irving,239691,Texas A&M,Josh Irving,,United States,Fr,club only,2,0,0,2,adidas-Next-Generation-Tournament,2025-05-24,0
+B,,250613,Michigan State,,,United States,Fr,showcase only,0,0,1,1,jordan_classic,2026-04-17,0
+B,,227250,USC,,,United States,Fr,showcase only,0,0,1,1,jordan_classic,2026-04-17,0
+B,,235024,Alabama,,,United States,Fr,showcase only,0,0,1,1,jordan_classic,2026-04-17,0
+B,,210682,Vanderbilt,,,United States,Fr,showcase only,0,0,1,1,nike_hoop_summit,2026-04-11,0
+B,,236214,UNC Greensboro,,,United States,Fr,showcase only,0,0,1,1,jordan_classic,2026-04-17,0
+B,,219414,Saint Mary's,,,United States,Fr,showcase only,0,0,1,1,mcdonalds,2026-03-31,0
+B,,218051,Maryland,,,United States,Fr,showcase only,0,0,1,1,nike_hoop_summit,2026-04-11,0
+B,,219416,Missouri,,,United States,Fr,showcase only,0,0,1,1,mcdonalds,2026-03-31,0
+B,,201536,Oklahoma State,,,United States,Fr,showcase only,0,0,1,1,mcdonalds,2026-03-31,0
+B,,218233,Texas Tech,,,United States,Fr,showcase only,0,0,1,1,jordan_classic,2026-04-17,0
+B,,235573,Indiana,,,United States,Fr,showcase only,0,0,1,1,jordan_classic,2026-04-17,0
+C,Mantas Rubstavicius,139621,Auburn,,,Lithuania,Fr,club + national,320,29,0,349,"Australian-NBL,Eurocup,Lithuanian-LKL,Lithuanian-Citadele-KMT,Euroleague,Basketball-Champions-League-Europe,Lithuanian-NKL,Kaunas-Tournament-ANGT,adidas-Next-Generation-Tournament; EuroBasket-Qualifiers 2024,European-World-Cup-Qualifier 2025,U16-Euro-Championship-A 2018,U19-World-Cup 2021,European-World-Cup-Qualifier 2021,U20-Euro-Championship-A 2022",2026-05-26,0
+C,Luca Vincini,152358,San Diego State,,,Italy,Fr,club + national,193,23,0,216,"Italian-Serie-A2-Basket,Italian-Lega-Basket-Serie-A,FIBA-Europe-Cup; European-World-Cup-Qualifier 2025,U16-Euro-Championship-A 2019,U20-Euro-Championship-A 2022,U20-Euro-Championship-A 2023",2026-05-10,0
+C,Iliyan Pishtikov,162002,Cal State Bakersfield,,,Bulgaria,Fr,club + national,180,27,0,207,"Bulgarian-NBL,FIBA-Europe-Cup,FIBA-Europe-Cup--Qualification,Balkan-BIBL; EuroBasket-Qualifiers 2024,European-World-Cup-Pre-Qualifier 2024,U18-Euro-Championship-B 2022,U20-Euro-Championship-B 2023,U20-Euro-Championship-B 2024",2026-03-25,0
+C,Siebe Ledegen,161454,Ohio,,,Belgium,Fr,club + national,177,29,0,206,"BNXT-League,Belgium-Scooore-League; EuroBasket-Qualifiers 2024,Olympic-Pre-Qualifier--Turkey 2023,EuroBasket 2025,European-World-Cup-Qualifier 2025,European-World-Cup-Qualifier 2021,U20-Euro-Championship-A 2022,U20-Euro-Championship-A 2023",2026-05-29,0
+C,Gustav Knudsen,148792,San Francisco,,,Denmark,Fr,club + national,187,17,0,204,"Basketball-Champions-League-Europe--Qualification,FIBA-Europe-Cup,Danish-Basketligaen,BNXT-League,FIBA-Europe-Cup--Qualification,Eurocup,Spanish-ACB,Kaunas-Tournament-ANGT,Istanbul-Tournament-ANGT,Basketball-Champions-League-Europe; EuroBasket-Qualifiers 2024,European-World-Cup-Qualifier 2025,U16-Euro-Championship-B 2019",2026-05-13,0
+C,Aurele Brena-Chemille,152395,San Jose State,,,France,Fr,club + national,170,7,0,177,"French-Leaders-Cup-LNB-B,French-LNB-Pro-B,French-Basketball-Cup,French-NM1,Belgrade-Tournament-ANGT,Varese-Tournament-ANGT,French-Jeep-Elite; U20-Euro-Championship-A 2024",2026-04-07,0
+C,Nemanja Popovic,120927,Memphis,,,Serbia,Fr,club + national,161,14,0,175,"Adriatic-League-Liga-ABA,Serbian-KLS,Polish-OBL,Polish-Mens-Cup,Adriatic-Junior-Liga-ABA,Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament,Serbian-RK-Cup; U16-Euro-Championship-A 2017,U17-World-Cup 2018",2026-05-13,0
+C,Alec Anigbata,165588,Utah,,,Germany,Fr,club + national,166,7,0,173,"German-Pro-B,Eurocup,German-BBL,German-Cup; U20-Euro-Championship-A 2024",2026-05-10,0
+C,Juan Fernandez,137383,South Carolina,,,Argentina,Fr,club + national,128,45,0,173,"Basketball-Champions-League-Europe,Spanish-ACB; Olympic-Pre-Qualifier--Argentina 2023,AmeriCup-Qualifiers 2024,FIBA-AmeriCup 2025,Americas-World-Cup-Qualifier 2025,U17-World-Cup 2018,U19-World-Cup 2019,U19-World-Cup 2021,Americas-World-Cup-Qualifier 2021",2026-07-05,0
+C,Luka Skoric,183084,San Diego State,,,Croatia,Fr,club + national,153,12,0,165,"Croatian-A-1-Liga,Adriatic-League-Liga-ABA,FIBA-Europe-Cup--Qualification,FIBA-Europe-Cup,Alpe-Adria-Cup; U18-Euro-Challengers 2021,U20-Euro-Championship-A 2023",2026-04-17,0
+C,,174547,LSU,,,,Fr,club + national,153,10,0,163,"Eurocup,Italian-Lega-Basket-Serie-A,Italian-Cup,Euroleague,Italian-Serie-A2-Basket; EuroBasket-Qualifiers 2024,EuroBasket 2025,European-World-Cup-Qualifier 2025",2026-08-31,0
+C,Mantas Laurencikas,197849,Texas,,,Lithuania,Fr,club + national,131,32,0,163,"Lithuanian-NKL,Dubai-Tournament-ANGT,Lithuanian-LKL,French-LNB-Espoirs,French-Jeep-Elite,Ljubljana-Tournament-ANGT,adidas-Next-Generation-Tournament; U20-Euro-Championship-A 2026,U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2023,U18-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-07-19,0
+C,Zak Smrekar,201893,Boston College,,,Slovenia,Fr,club + national,134,25,0,159,"Slovenian-SKL,Adriatic-League-Liga-ABA,Adriatic-Junior-Liga-ABA,Podgorica-Tournament-ANGT,Slovenian-Spar-Cup; EuroBasket-Qualifiers 2024,U19-World-Cup 2025,European-World-Cup-Qualifier 2025,U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024",2026-05-07,0
+C,Jonas Boulefaa,191312,Murray State,,,France,Fr,club + national,129,28,0,157,"French-NM1,Paris-Tournament-ANGT,adidas-Next-Generation-Tournament,French-LNB-Pro-B,French-Basketball-Cup,Belgrade-Tournament-ANGT; U16-Euro-Championship-A 2022,U16-Euro-Championship-A 2023,U17-World-Cup 2024,U18-Euro-Championship-A 2025",2026-04-24,0
+C,Mark Padjen,201890,Murray State,,,Slovenia,Fr,club + national,105,49,0,154,"Slovenian-SKL,Alpe-Adria-Cup,Slovenian-Spar-Cup,Adriatic-League-Liga-ABA; EuroBasket-Qualifiers 2024,EuroBasket 2025,U19-World-Cup 2025,European-World-Cup-Qualifier 2025,U20-Euro-Championship-A 2026,U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2023,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024",2026-07-19,0
+C,Talis Soulhac,191313,Murray State,,,France,Fr,club + national,137,16,0,153,"French-NM1,Paris-Tournament-ANGT,adidas-Next-Generation-Tournament,French-LNB-Pro-B,French-Basketball-Cup,Belgrade-Tournament-ANGT; U19-World-Cup 2025,U20-Euro-Championship-A 2026,U16-Euro-Championship-A 2022",2026-07-19,0
+C,Alexandros Samodurov,183456,North Carolina,,,Greece,Fr,club + national,117,33,0,150,"Euroleague,Greek-HEBA-A2,Greek-HEBA-A1,Patras-Tournament-ANGT,adidas-Next-Generation-Tournament,Munich-Tournament-ANGT; EuroBasket 2025,European-World-Cup-Qualifier 2025,U18-Euro-Championship-A 2022,U18-Euro-Championship-A 2023,U20-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-04-25,0
+C,Gantas Krizanauskas,201805,Portland State,,,Lithuania,Fr,club + national,130,19,0,149,"Basketball-Champions-League-Europe,Lithuanian-LKL,Lithuanian-NKL,Youth-Basketball-Champions-League-Europe,Lithuanian-Citadele-KMT; U20-Euro-Championship-A 2026,U18-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-07-19,0
+C,Jared Grey,170550,High Point,,,Germany,Fr,club + national,135,14,0,149,"German-Pro-B,Eurocup,German-BBL,German-Cup,German-Pro-A; U18-Euro-Championship-A 2023,U20-Euro-Championship-A 2025",2026-05-10,0
+C,Narcisse N'Goy,187892,Auburn,,,France,Fr,club + national,140,6,0,146,"French-LNB-Espoirs,French-Jeep-Elite,French-LNB-Pro-B,French-Basketball-Cup; U20-Euro-Championship-A 2024",2026-04-07,0
+C,Asim Djulovic,183541,Butler,,,Serbia,Fr,club + national,123,18,0,141,"Serbian-KLS,Adriatic-Junior-Liga-ABA,Adriatic-League-Liga-ABA,Serbian-RK-Cup,Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament; U16-Euro-Challengers 2021,EuroBasket-Qualifiers 2024,U17-World-Cup 2022,U20-Euro-Championship-A 2024",2026-05-12,0
+C,Leonardo Marangon,196853,Providence,,,Italy,Fr,club + national,112,28,0,140,"Italian-Serie-A2-Basket,Varese-Tournament-ANGT; U18-Euro-Championship-A 2022,U18-Euro-Championship-A 2023,U20-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-04-12,0
+C,Owen Foxwell,192445,Wisconsin,,,Australia,Fr,club + national,132,6,0,138,"NBL-Blitz,Australian-NBL,New-Zealand-NBL; FIBA-Asia-Cup-A 2025",2026-03-17,0
+C,Pavle Nikolic,182936,Murray State,,,Serbia,Fr,club + national,113,25,0,138,"Serbian-KLS,Adriatic-Junior-Liga-ABA,Adriatic-League-Liga-ABA,Serbian-RK-Cup; U17-World-Cup 2022,U18-Euro-Championship-A 2023,U20-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-04-26,0
+C,Ousmane N'Diaye,159593,Kentucky,,,Senegal,Fr,club + national,120,18,0,138,"Spanish-ACB,Euroleague,Italian-Lega-Basket-Serie-A,German-Pro-B,Spanish-Segunda-FEB; Olympic-Pre-Qualifier--Nigeria 2023,FIBA-AfroBasket 2025,African-World-Cup-Qualifier 2025,U18-AfroBasket 2022",2026-05-03,0
+C,Oliver Kanden,190602,Pepperdine,,,Finland,Fr,club + national,109,27,0,136,"Basketball-Champions-League-Europe--Qualification,Finnish-Korisliiga,FIBA-Europe-Cup; U18-Euro-Championship-B 2022,U20-Euro-Championship-B 2023,U20-Euro-Championship-B 2024,Universiade 2025",2026-04-02,0
+C,Nedas Raupelis,201809,Rhode Island,,,Lithuania,Fr,club + national,112,19,0,131,"Lithuanian-NKL,Dubai-Tournament-ANGT,Munich-Tournament-ANGT,adidas-Next-Generation-Tournament; U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-04-03,0
+C,Filip Malesevic,170046,Arizona State,,,Serbia,Fr,club + national,110,17,0,127,"Serbian-KLS,Adriatic-League-Liga-ABA,Serbian-RK-Cup,Belgrade-Tournament-ANGT; U16-Euro-Challengers 2021,U20-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-05-12,0
+C,Armandas Bancevicius,222385,Tennessee-Martin,,,Lithuania,Fr,club + national,106,20,0,126,"Lithuanian-NKL,Belgrade-Tournament-ANGT; U20-Euro-Championship-A 2026,U18-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-07-19,0
+C,Aleksa Milenkovic,179320,California Baptist,,,Serbia,Fr,club + national,98,26,0,124,"Serbian-KLS,Adriatic-League-Liga-ABA,Serbian-RK-Cup,Belgrade-Tournament-ANGT,Adriatic-Junior-Liga-ABA,adidas-Next-Generation-Tournament; U18-Euro-Challengers 2021,U18-Euro-Championship-A 2022,U19-World-Cup 2023,U20-Euro-Championship-A 2024",2026-04-20,0
+C,Egor Amosov,202189,UConn,,,Russia,Fr,club only,121,0,0,121,"VTB-United-League,VTB-Youth-United-League,Spanish-ACB,Spanish-Liga-U,Abu-Dhabi-Tournament-ANGT,adidas-Next-Generation-Tournament",2026-05-24,0
+C,Kajus Mikalauskas,219848,Texas-Arlington,,,Lithuania,Fr,club + national,100,20,0,120,"Dubai-Tournament-ANGT,Lithuanian-NKL,ULM-Tournament-ANGT,adidas-Next-Generation-Tournament,Euroleague,Lithuanian-LKL,Lithuanian-Citadele-KMT; U16-Euro-Championship-A 2023,U17-World-Cup 2024,U18-Euro-Championship-A 2025",2026-05-10,0
+C,Teodor Simic,152551,Texas-Arlington,,,North Macedonia,Fr,club + national,77,43,0,120,"Bosnian-BiH-Liga,Spanish-Segunda-FEB,Macedonian-Superleague,Valencia-Tournament-ANGT,adidas-Next-Generation-Tournament,Patras-Tournament-ANGT,Adriatic-Junior-Liga-ABA; EuroBasket-Qualifiers 2024,European-World-Cup-Pre-Qualifier 2024,Olympic-Pre-Qualifier--Poland-Estonia 2023,U16-Euro-Championship-A 2019,European-World-Cup-Pre-Qualifier 2020,European-World-Cup-Qualifier 2021,U18-Euro-Championship-A 2022,U20-Euro-Championship-B 2023,U20-Euro-Championship-A 2024",2026-04-05,0
+C,Adrian Petkovic,184340,Drexel,,,Germany,Fr,club only,119,0,0,119,"German-Pro-B,German-BBL,German-Cup,German-Pro-A",2026-05-10,0
+C,Joel Cwik,201677,Winthrop,,,Germany/Poland,Fr,club + national,96,21,0,117,"German-Pro-B,Dubai-Tournament-ANGT,adidas-Next-Generation-Tournament,Polish-OBL,German-BBL,Munich-Tournament-ANGT; U18-Euro-Championship-A 2023,U18-Euro-Championship-B 2024,U20-Euro-Championship-A 2025",2026-05-13,0
+C,Diego Garavaglia,194930,Rutgers,,,Italy,Fr,club + national,74,42,0,116,"Italian-Lega-Basket-Serie-A,Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament,Eurocup,German-BBL,German-Cup,Munich-Tournament-ANGT; U16-Euro-Championship-A 2022,U16-Euro-Championship-A 2023,U17-World-Cup 2024,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024,U18-Euro-Championship-A 2025",2026-05-10,0
+C,Andrej Mitrevski,139350,Pacific,,,North Macedonia,Fr,club + national,81,34,0,115,"Macedonian-Superleague,Basketball-Champions-League-Europe--Qualification,FIBA-Europe-Cup,Balkan-BIBL; U18-Euro-Challengers 2021,European-World-Cup-Pre-Qualifier 2024,U16-Euro-Championship-B 2018,U16-Euro-Championship-A 2019,European-World-Cup-Qualifier 2021,U20-Euro-Championship-B 2022,U20-Euro-Championship-B 2023",2026-04-05,0
+C,Georgi Gerganov,152138,Bradley,,,Bulgaria,Fr,club + national,86,26,0,112,"Bulgarian-NBL,FIBA-Europe-Cup; U18-Euro-Challengers 2021,European-World-Cup-Pre-Qualifier 2024,U16-Euro-Championship-B 2019,U20-Euro-Championship-B 2022,U20-Euro-Championship-B 2023",2026-03-13,0
+C,Jakub Szumert,200175,Southern Methodist,,,Poland,Fr,club + national,83,28,0,111,"Polish-OBL,Munich-Tournament-ANGT,adidas-Next-Generation-Tournament; EuroBasket-Qualifiers 2024,European-World-Cup-Qualifier 2025,U17-World-Cup 2022,U18-Euro-Championship-A 2023,U20-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-07-06,0
+C,Arminas Vilkas,219854,Tennessee-Martin,,,Lithuania,Fr,club + national,86,24,0,110,"Dubai-Tournament-ANGT,Lithuanian-NKL,Munich-Tournament-ANGT,Youth-Basketball-Champions-League-Europe; U16-Euro-Championship-A 2023,U17-World-Cup 2024,U18-Euro-Championship-A 2024,U18-Euro-Championship-A 2025",2026-03-22,0
+C,Jakub Urbaniak,205825,Brigham Young,,,Poland,Fr,club + national,91,18,0,109,"Spanish-Segunda-FEB,Eurocup,Spanish-ACB,Polish-OBL,Polish-Mens-Cup; European-World-Cup-Qualifier 2025,U20-Euro-Championship-A 2023,U16-Euro-Championship-B 2025",2026-07-06,0
+C,Nikas Stuknys,193897,Tennessee-Martin,,,Lithuania,Fr,club + national,95,14,0,109,"Eurocup,Lithuanian-LKL,Lithuanian-Citadele-KMT,Lithuanian-NKL,Basketball-Champions-League-Europe,Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament; U17-World-Cup 2022,U20-Euro-Championship-A 2025",2026-05-13,0
+C,Dontae Nance,179623,Pepperdine,,,New Zealand,Fr,club + national,107,2,0,109,"NBL-Blitz,New-Zealand-NBL,Australian-NBL; FIBA-Asia-Cup-A 2025",2026-04-09,0
+C,Willian Marie-Anais,184936,Abilene Christian,,,France,Fr,club only,107,0,0,107,"French-LNB-Pro-B,French-Basketball-Cup,French-NM1,French-LNB-Espoirs",2026-04-03,0
+C,Samu Adler,219766,Butler,,,Finland,Fr,club + national,79,25,0,104,"Finnish-Korisliiga,ULM-Tournament-ANGT; EuroBasket-Qualifiers 2024,European-World-Cup-Qualifier 2025,U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2024,U18-Euro-Championship-B 2025",2026-07-06,0
+C,Amar Hot,152553,East Texas A&M,,,North Macedonia,Fr,club + national,74,30,0,104,"Macedonian-Superleague,Adriatic-Junior-Liga-ABA; U18-Euro-Challengers 2021,European-World-Cup-Pre-Qualifier 2024,U16-Euro-Championship-A 2019,U20-Euro-Championship-B 2022,U20-Euro-Championship-B 2023",2026-03-11,0
+C,Jibbe Sicking,190939,UMKC,,,Netherlands,Fr,club + national,88,15,0,103,"FIBA-Europe-Cup,BNXT-League; U18-Euro-Championship-B 2022,U20-Euro-Championship-B 2023",2026-06-10,0
+C,Endurance Aiyamenkhue,219631,Arizona,,,Netherlands,Fr,club + national,81,21,0,102,"German-Pro-B,Dubai-Tournament-ANGT,adidas-Next-Generation-Tournament,ULM-Tournament-ANGT,Eurocup; U16-Euro-Championship-B 2023,U18-Euro-Championship-B 2024,U18-Euro-Championship-B 2025",2026-05-13,0
+C,Gabrielius Jokubauskas,201800,Northern Kentucky,,,Lithuania,Fr,club + national,93,7,0,100,"Lithuanian-NKL,Youth-Basketball-Champions-League-Europe; U20-Euro-Championship-A 2026",2026-07-19,0
+C,Jorke Aav,184835,Longwood,,,Estonia,Fr,club + national,80,19,0,99,"German-Pro-B,German-BBL,German-Pro-A; U-18-Baltic-Sea-Cup 2022,U18-Euro-Championship-B 2023,U20-Euro-Championship-B 2024,U20-Euro-Championship-B 2025",2025-12-28,0
+C,Tristan Vukotic,210457,Rice,,,Slovenia,Fr,club + national,92,7,0,99,"Slovenian-SKL,Slovenian-Spar-Cup,Adriatic-League-Liga-ABA; U20-Euro-Championship-A 2025",2026-05-13,0
+C,Linus Ruf,170616,Wyoming,,,Germany,Fr,club + national,94,4,0,98,"German-Pro-B,German-BBL,German-Cup,German-Pro-A,Ljubljana-Tournament-ANGT,Munich-Tournament-ANGT; U16-Euro-Challengers 2021",2026-04-04,0
+C,Erwann Bussing,201736,Albany,,,France,Fr,club + national,90,7,0,97,"French-LNB-Espoirs,French-Jeep-Elite; U16-Euro-Championship-A 2022",2026-04-18,0
+C,Fynn Lastring,204789,New Mexico,,,Germany,Fr,club + national,68,28,0,96,"German-Pro-A,German-Pro-B; U16-Euro-Championship-A 2023,U17-World-Cup 2024,U18-Euro-Championship-A 2024,U18-Euro-Championship-A 2025",2026-03-29,0
+C,Bassala Bagayoko,176312,Texas Tech,,,Mali,Fr,club only,96,0,0,96,"Spanish-Segunda-FEB,Spanish-ACB,FIBA-Europe-Cup,adidas-Next-Generation-Tournament",2026-05-14,0
+C,Jonas Zilinskas,197638,California Baptist,,,Germany,Fr,club + national,83,13,0,96,"German-Pro-B,Dubai-Tournament-ANGT,adidas-Next-Generation-Tournament,German-BBL,FIBA-Europe-Cup,Munich-Tournament-ANGT; U16-Euro-Championship-B 2022,Albert-Schweitzer-Tournament 2024",2026-04-27,0
+C,Lenny Anigbata,186118,Chattanooga,,,Germany,Fr,club only,92,0,0,92,"German-Pro-B,FIBA-Europe-Cup,German-BBL,German-Cup",2026-05-12,0
+C,Nedas Cholevinskas,201096,Quinnipiac,,,England/Lithuania,Fr,club + national,63,28,0,91,"British-BBL,Lithuanian-NKL,Super-League-Basketball; U18-Euro-Championship-A 2022,U18-Euro-Championship-B 2023,U20-Euro-Championship-B 2024,U20-Euro-Championship-B 2025",2026-04-25,0
+C,Elisee Assui,216517,Florida State,,,Italy,Fr,club + national,67,21,0,88,"Italian-Lega-Basket-Serie-A,FIBA-Europe-Cup,Dubai-Tournament-ANGT; U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024,U20-Euro-Championship-A 2025",2026-05-10,0
+C,Tom Stoiber,216152,Davidson,,,Germany,Fr,club + national,64,21,0,85,"German-Pro-A,Youth-Basketball-Champions-League-Europe; U19-World-Cup 2025,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024",2026-04-04,0
+C,Faruk Biberovic,218619,Pepperdine,,,Turkiye,Fr,club + national,78,7,0,85,"Turkish-TBL,Turkish-BSL; U18-Euro-Championship-A 2023",2026-03-21,0
+C,Santiago Paz Vazquez,208911,North Dakota State,,,Spain,Fr,club + national,76,7,0,83,"Spanish-Segunda-FEB,Spanish-Primera-FEB,Spanish-ACB; U20-Euro-Championship-A 2023",2026-05-30,0
+C,Jackson Ball,220870,Wisconsin,,,New Zealand,Fr,club + national,45,37,0,82,"New-Zealand-NBL,Australian-NBL; Asia-Cup-Qualifiers 2024,U19-World-Cup 2025,Asian-World-Cup-Qualifier 2025,Albert-Schweitzer-Tournament 2026,U18-Asia-Cup-A 2026,U16-Asia-Cup 2023,U17-World-Cup 2024",2026-08-23,0
+C,Romain Valakou,221385,Troy,,,France,Fr,club + national,76,4,0,80,"French-LNB-Espoirs,Podgorica-Tournament-ANGT,French-Jeep-Elite,French-Basketball-Cup; U18-Euro-Championship-A 2024",2026-04-18,0
+C,Abdramane Siby,207914,Syracuse,,,Mali/Croatia,Fr,club only,80,0,0,80,"Adriatic-Junior-Liga-ABA,Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament,Serbian-KLS,Adriatic-League-Liga-ABA,Serbian-RK-Cup",2026-05-12,0
+C,Nikolas Sermpezis,207471,Florida Gulf Coast,,,Germany/Greece,Fr,club + national,60,18,0,78,"German-Pro-B,Podgorica-Tournament-ANGT,Munich-Tournament-ANGT,German-BBL,German-Cup; U16-Euro-Championship-A 2023,Albert-Schweitzer-Tournament 2024,U18-Euro-Championship-A 2025",2026-01-18,0
+C,David Torresani,206283,San Diego State,,,Italy,Fr,club + national,59,19,0,78,"Italian-Lega-Basket-Serie-A; U18-Euro-Championship-A 2023,U20-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-03-15,0
+C,Zalan Flasar,216814,Rice,,,Hungary,Fr,club + national,53,24,0,77,"Hungarian-NBIA,Hungarian-Cup,Youth-Basketball-Champions-League-Europe; European-World-Cup-Qualifier 2025,U16-Euro-Championship-B 2023,U18-Euro-Championship-B 2024,U18-Euro-Championship-B 2025",2026-04-02,0
+C,Dylan Bordon,162091,San Francisco,,,Argentina,Fr,club + national,55,21,0,76,"Spanish-Segunda-FEB,Eurocup,Spanish-ACB,Basketball-Champions-League-Europe,Spanish-Liga-U,Argentinian-Liga-A; U18-South-American-Championship 2022,FIBA-AmeriCup 2025,Americas-World-Cup-Qualifier 2025,U18-AmeriCup 2022,U19-World-Cup 2023",2026-05-02,0
+C,Yoav Vitlem,218601,San Francisco,,,Israel,Fr,club + national,60,14,0,74,"Israeli-BSL,Israel-BSL-Winner-Cup; U18-Euro-Championship-A 2023,U20-Euro-Championship-A 2025",2026-05-10,0
+C,Dominykas Daubaris,210857,California,,,Lithuania,Fr,club + national,60,12,0,72,"Lithuanian-NKL,ULM-Tournament-ANGT,adidas-Next-Generation-Tournament,Lithuanian-LKL,Munich-Tournament-ANGT; U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2025",2026-05-10,0
+C,Yssam Moungalla,221372,Chattanooga,,,France,Fr,club only,72,0,0,72,"French-LNB-Espoirs,French-Jeep-Elite",2026-05-10,0
+C,Mikhail Dulkay,196595,Louisiana,,,Russia,Fr,club only,71,0,0,71,"VTB-Youth-United-League,VTB-United-League",2025-10-24,0
+C,Ilja Kurucs,219834,Georgia Tech,,,Latvia,Fr,club + national,56,14,0,70,"Dubai-Tournament-ANGT,Lithuanian-NKL,ULM-Tournament-ANGT,adidas-Next-Generation-Tournament,Estonian-Latvian-Basketball-League; U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2025",2026-04-07,0
+C,Jamal George,137577,Oral Roberts,,,Switzerland,Fr,club + national,52,16,0,68,"Swiss-LNA; European-World-Cup-Pre-Qualifier 2024,European-World-Cup-Qualifier 2025,U20-Euro-Championship-B 2022",2026-05-09,0
+C,Diego Roman Barnes,183563,South Alabama,,,Switzerland,Fr,club + national,50,18,0,68,"French-LNB-Espoirs,French-LNB-Pro-B,Swiss-LNA; U16-Euro-Challengers 2021,U20-Euro-Championship-B 2024,U20-Euro-Championship-B 2025",2026-05-12,0
+C,Babacar Sane,153120,St. John's,,,Senegal,Fr,club + national,48,20,0,68,"Intercontinental-Cup,Basketball-Africa-League,German-Cup,German-BBL; African-World-Cup-Qualifier 2025,U19-World-Cup 2021,African-World-Cup-Qualifier 2021",2026-07-05,0
+C,Marko Lukanoski,183689,Lindenwood,,,North Macedonia,Fr,club + national,25,42,0,67,"Macedonian-Superleague,Adriatic-Junior-Liga-ABA,Ljubljana-Tournament-ANGT; U20-Euro-Championship-B 2026,U16-Euro-Championship-A 2022,U18-Euro-Championship-B 2023,U20-Euro-Championship-A 2024,U18-Euro-Championship-B 2024,U20-Euro-Championship-B 2025",2026-07-19,0
+C,Janis Junemann,226184,Western Michigan,,,Latvia/Germany,Fr,club + national,60,7,0,67,"German-BBL,FIBA-Europe-Cup,German-Cup,German-Pro-A; U20-Euro-Championship-B 2024",2026-04-04,0
+C,Maksim Brnovic,227917,Arizona,,,Montenegro,Fr,club + national,51,16,0,67,"Podgorica-Tournament-ANGT,ULM-Tournament-ANGT,adidas-Next-Generation-Tournament,Lithuanian-NKL,Abu-Dhabi-Tournament-ANGT; European-World-Cup-Qualifier 2025,U16-Euro-Championship-B 2024,U18-Euro-Championship-B 2025",2026-05-23,0
+C,Hugo Lopez,182838,South Carolina,,,Spain,Fr,club + national,55,11,0,66,"Spanish-Primera-FEB,Spanish-Segunda-FEB; U19-World-Cup 2021,U20-Euro-Championship-A 2023",2026-05-03,0
+C,Matt Goodwin,201090,Central Connecticut State,,,England,Fr,club + national,48,17,0,65,"British-BBL,Super-League-Basketball,Eurocup; U18-Euro-Championship-A 2022,U18-Euro-Championship-B 2023,U20-Euro-Championship-B 2024",2026-04-10,0
+C,Marko Masic,204068,Vermont,,,Germany,Fr,club only,62,0,0,62,"German-Pro-B,Youth-Basketball-Champions-League-Europe",2026-04-29,0
+C,Oliver Kullamaee,210850,San Jose State,,,Estonia,Fr,club + national,41,21,0,62,"Dubai-Tournament-ANGT,adidas-Next-Generation-Tournament,German-Pro-B,ULM-Tournament-ANGT,Munich-Tournament-ANGT; U16-Euro-Championship-B 2023,U18-Euro-Championship-B 2024,U18-Euro-Championship-B 2025",2025-08-03,0
+C,Eetu Heinonen,201659,Davidson,,,Finland,Fr,club + national,39,22,0,61,"Spanish-Segunda-FEB,Basketball-Champions-League-Europe,Spanish-Liga-U; U16-Euro-Championship-B 2022,U18-Euro-Championship-A 2023,U18-Euro-Championship-A 2024",2026-05-09,0
+C,Colin Schroeder,233296,Fresno State,,,Germany,Fr,club + national,50,9,0,59,"Youth-Basketball-Champions-League-Europe,German-BBL,German-Pro-B,German-Cup; U18-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2026-05-08,0
+C,Maxim Klitschko,235745,East Carolina,,,Ukraine,Fr,club + national,41,17,0,58,"French-LNB-Espoirs,French-Jeep-Elite; EuroBasket-Qualifiers 2024,European-World-Cup-Qualifier 2025,U20-Euro-Championship-B 2024,U20-Euro-Championship-A 2025",2026-07-05,0
+C,Tristan Devers,199722,Washington,,,Australia,Fr,club + national,45,13,0,58,"Australian-NBL,NBL-Blitz; U17-World-Cup 2022,U16-Asia-Cup 2022",2026-02-20,0
+C,Oliver Sassella,202087,Iona,,,Switzerland,Fr,club + national,28,29,0,57,"Swiss-LNA; U19-World-Cup 2025,U20-Euro-Championship-B 2026,U16-Euro-Championship-B 2022,U18-Euro-Championship-B 2023,U18-Euro-Championship-B 2024",2026-07-19,0
+C,Roger Fabrega Urpina,195881,Fresno State,,,Spain,Fr,club + national,50,7,0,57,"Spanish-Segunda-FEB,Patras-Tournament-ANGT,Zadar-Tournament-ANGT,adidas-Next-Generation-Tournament; U20-Euro-Championship-A 2025",2026-05-31,0
+C,Mert Kocagozoglu,219949,Bucknell,,,Turkiye,Fr,club + national,29,26,0,55,"Turkish-TBL,Istanbul-Tournament-ANGT; U16-Euro-Championship-A 2023,U17-World-Cup 2024,Albert-Schweitzer-Tournament 2024,U18-Euro-Championship-A 2025",2025-08-03,0
+C,Pietro Ianuzzi,201780,Cal State Bakersfield,,,Italy,Fr,club + national,26,28,0,54,"Eurocup,Italian-Lega-Basket-Serie-A,Podgorica-Tournament-ANGT,Basketball-Champions-League-Europe,Belgrade-Tournament-ANGT; U16-Euro-Championship-A 2022,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024,U20-Euro-Championship-A 2025",2026-04-04,0
+C,Erik Makke,199602,Stephen F. Austin,,,Estonia,Fr,club + national,46,8,0,54,"Estonian-Latvian-Basketball-League,Basketball-Champions-League-Europe--Qualification,FIBA-Europe-Cup; U18-Euro-Championship-B 2023",2026-04-07,0
+C,Noa Zemjlic,213821,Massachusetts,,,Croatia,Fr,club + national,40,13,0,53,"Adriatic-Junior-Liga-ABA,FIBA-Europe-Cup,Croatian-A-1-Liga,Zadar-Tournament-ANGT; U18-Euro-Championship-A 2023,U20-Euro-Championship-B 2025",2026-03-31,0
+C,Bryan Chretien,221357,Appalachian State,,,France,Fr,club only,53,0,0,53,French-LNB-Espoirs,2025-05-17,0
+C,Sayon Keita,209674,North Carolina,,,Mali,Fr,club only,53,0,0,53,"Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament,Spanish-ACB,ULM-Tournament-ANGT,Euroleague,Spanish-Liga-U",2026-05-24,0
+C,Joao Pedro Panzo,202027,Virginia Military,,,Portugal,Fr,club + national,2,51,0,53,"Portuguese-LPB,Basketball-Champions-League-Europe; U20-Euro-Championship-B 2026,U16-Euro-Championship-B 2022,U16-Euro-Championship-B 2023,U20-Euro-Championship-B 2024,U18-Euro-Championship-B 2024,U20-Euro-Championship-B 2025,U18-Euro-Championship-B 2025",2026-07-19,0
+C,Gabrielius Bubnys,239226,Tennessee-Martin,,,Lithuania,Fr,club + national,45,7,0,52,"Lithuanian-NKL,Youth-Basketball-Champions-League-Europe; U18-Euro-Championship-A 2025",2026-03-22,0
+C,Max Gaspa,227022,Bradley,,,Spain,Fr,club + national,36,14,0,50,"Spanish-ACB,Eurocup,Spanish-Liga-U; U20-Euro-Championship-A 2026,U20-Euro-Championship-A 2025",2026-07-19,0
+C,Seraphin Kadjividi,175929,Cal State Bakersfield,,,Cameroon,Fr,club only,49,0,0,49,Italian-Serie-A2-Basket,2026-04-08,0
+C,Julius Matusek,178324,Queens University,,,Slovakia,Fr,club + national,33,16,0,49,"Slovakian-Extraliga; U16-Euro-Challengers 2021,U18-Euro-Championship-B 2023,U20-Euro-Championship-B 2025",2026-04-04,0
+C,Luka Savanovic,207913,Campbell,,,Serbia,Fr,club + national,41,7,0,48,"Serbian-KLS,Adriatic-Junior-Liga-ABA,Serbian-RK-Cup,Belgrade-Tournament-ANGT,adidas-Next-Generation-Tournament; U20-Euro-Championship-A 2025",2026-04-04,0
+C,Malone Gros,223850,Houston Christian,,,France,Fr,club only,47,0,0,47,"French-LNB-Espoirs,Paris-Tournament-ANGT",2025-06-01,0
+C,Martin Minarovjech,202054,Lamar,,,Slovakia,Fr,club + national,19,28,0,47,"Slovakian-Extraliga; U16-Euro-Championship-B 2022,U16-Euro-Championship-B 2023,U18-Euro-Championship-B 2024,U18-Euro-Championship-B 2025",2025-08-03,0
+C,Victor Vanderstraeten,233369,N.J.I.T.,,,Belgium,Fr,club + national,39,6,0,45,BNXT-League; U18-Euro-Championship-A 2024,2026-05-09,0
+C,Nathan Amoran,202075,Idaho State,,,Sweden,Fr,club + national,24,21,0,45,"Swedish-Basketligan; U20-Euro-Championship-B 2026,U16-Euro-Championship-B 2022,U20-Euro-Championship-B 2025",2026-07-19,0
+C,Ogbemudia Uagboe,236284,Cleveland State,,,Denmark,Fr,club + national,25,19,0,44,"Danish-Basketligaen; European-World-Cup-Pre-Qualifier 2024,European-World-Cup-Qualifier 2025,U18-Euro-Championship-A 2024,U20-Euro-Championship-B 2025",2026-03-02,0
+C,Sublime Gbiegba,204721,Vermont,,,France,Fr,club only,43,0,0,43,"French-Basketball-Cup,French-LNB-Pro-B,French-LNB-Espoirs,Basketball-Champions-League-Europe,French-Jeep-Elite",2026-05-09,0
+C,Ludvik Murer Bergseng,202015,Bucknell,,,Norway,Fr,club + national,19,22,0,41,"Spanish-Liga-U; European-World-Cup-Pre-Qualifier 2024,U16-Euro-Championship-B 2022,U18-Euro-Championship-B 2024",2026-04-17,0
+C,Leandro Gysel,223395,Le Moyne,,,Switzerland,Fr,club + national,33,8,0,41,Swiss-LNA; U20-Euro-Championship-B 2025,2026-05-09,0
+C,Panagiotis Lefas,216816,Iona,,,Greece,Fr,club + national,18,21,0,39,"Dubai-Tournament-ANGT,Greek-HEBA-A1,FIBA-Europe-Cup,Eurocup; U20-Euro-Championship-A 2026,U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2025",2026-07-19,0
+C,Yaroslav Nikonov,184479,Portland State,,,Russia/Bulgaria,Fr,club only,38,0,0,38,VTB-Youth-United-League,2024-03-13,0
+C,Tom Koppens,225400,Cal State Bakersfield,,,Australia,Fr,club only,37,0,0,37,"Australian-NBL,NBL-Blitz",2026-02-19,0
+C,Fidel Rotta,217110,Niagara,,,Argentina,Fr,club + national,18,19,0,37,"Argentinian-Liga-A,Basketball-Champions-League-Americas; U19-World-Cup 2025,U16-AmeriCup 2023,U17-World-Cup 2024",2025-11-04,0
+C,Benjamin Schuch,201552,New Mexico,,,Austria,Fr,club + national,3,33,0,36,"Austrian-A-Bundesliga; European-World-Cup-Pre-Qualifier 2024,European-World-Cup-Qualifier 2025,U16-Euro-Championship-B 2022,U18-Euro-Championship-B 2023,U18-Euro-Championship-B 2024,U20-Euro-Championship-B 2025",2026-03-01,0
+C,Jean-Ernest Boyomo Keedi,221325,Stetson,,,France,Fr,club only,35,0,0,35,"French-LNB-Espoirs,French-LNB-Pro-B,French-Basketball-Cup",2024-12-20,0
+C,Luka Lokhmanchuk,183571,Youngstown State,,,Ukraine,Fr,club + national,10,23,0,33,"Spanish-Segunda-FEB,Paris-Tournament-ANGT; U16-Euro-Challengers 2021,U16-Euro-Championship-B 2022,U18-Euro-Championship-B 2024,U20-Euro-Championship-A 2025",2025-07-20,0
+C,Boyuan Zhang,220754,Louisville,,,China,Fr,national only,0,32,1,33,"U19-World-Cup 2025,U16-Asia-Cup 2023,U17-World-Cup 2024,Albert-Schweitzer-Tournament 2024,U18-Asia-Cup-A 2024; nike_hoop_summit",2025-07-06,0
+C,Mana Martin,220868,Siena,,,New Zealand,Fr,club + national,20,12,0,32,"New-Zealand-NBL; U16-Asia-Cup 2023,U17-World-Cup 2024",2026-05-09,0
+C,Felipe Minzer,213813,Austin Peay,,,Argentina,Fr,club + national,8,24,0,32,"Spanish-ACB,FIBA-Europe-Cup--Qualification,Munich-Tournament-ANGT,Zadar-Tournament-ANGT; U19-World-Cup 2025,U16-AmeriCup 2023,U17-World-Cup 2024,U18-AmeriCup 2024",2025-07-05,0
+C,Alberto Blanco Barazar,201900,Oral Roberts,,,Spain,Fr,club + national,4,28,0,32,"Patras-Tournament-ANGT; U16-Euro-Championship-A 2022,U16-Euro-Championship-A 2023,U17-World-Cup 2024,U20-Euro-Championship-A 2025",2025-07-20,0
+C,Che Brogan,218343,Ohio,,,Australia,Fr,club + national,6,25,0,31,"NBL-Blitz,Australian-NBL; U19-World-Cup 2025,U17-Oceania-Championship 2023,Albert-Schweitzer-Tournament 2024,U18-Asia-Cup-A 2024",2025-12-24,0
+C,David Nejezchleb,201624,Evansville,,,Czechia,Fr,club + national,23,7,0,30,"Czech-NBL,Basketball-Champions-League-Europe; U16-Euro-Championship-B 2022",2026-04-11,0
+C,Felipe Quinones,212024,Florida Atlantic,,,Puerto Rico,Fr,club + national,1,28,0,29,"adidas-Next-Generation-Tournament; U18-AmeriCup 2026,U16-AmeriCup 2023,U17-CentroBasket 2023,U17-World-Cup 2024,U18-AmeriCup 2024",2026-06-07,0
+C,Ousmane Ndour,212230,North Texas,,,Senegal,Fr,club only,29,0,0,29,"Spanish-Segunda-FEB,Patras-Tournament-ANGT",2025-12-14,0
+C,Hugo Tidare,211109,Lipscomb,,,Sweden,Fr,club + national,18,11,0,29,"Swedish-Basketligan; U18-Euro-Championship-A 2024,U20-Euro-Championship-B 2025",2025-12-05,0
+C,Stefan Marjanovic,201877,Monmouth,,,Serbia,Fr,club + national,16,12,0,28,"Adriatic-Junior-Liga-ABA,Belgrade-Tournament-ANGT,Serbian-KLS,Serbian-RK-Cup; U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2025",2025-07-31,0
+C,Daniel Hansen,204879,California Baptist,,,Hungary,Fr,club only,28,0,0,28,Hungarian-NBIA,2026-04-29,0
+C,Jayden Hodge,222232,Northwestern,,,Belgium,Fr,national only,0,27,0,27,"U16-Euro-Championship-B 2022,U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2024,U18-Euro-Championship-A 2025",2025-07-31,0
+C,Goc Malual,222712,Colorado,,,Australia,Fr,club + national,9,18,0,27,"Australian-NBL; U19-World-Cup 2025,U17-Oceania-Championship 2023,U18-Asia-Cup-A 2024",2026-03-21,0
+C,Dorian Rinaldo-Komlan,221361,Iowa State,,,France,Fr,club only,27,0,0,27,"French-LNB-Espoirs,Munich-Tournament-ANGT",2025-04-27,0
+C,Roi Behar,183464,Bryant,,,Israel,Fr,club + national,14,12,0,26,"Israeli-BSL,Patras-Tournament-ANGT,adidas-Next-Generation-Tournament,Zadar-Tournament-ANGT; U16-Euro-Challengers 2021,U18-Euro-Championship-A 2023",2023-12-25,0
+C,Omar Essam,218980,Fordham,,,Egypt,Fr,national only,0,26,0,26,"U16-AfroBasket 2023,U17-World-Cup 2024,Albert-Schweitzer-Tournament 2024,U18-AfroBasket 2024",2024-09-13,0
+C,Junior Kemm,202091,Evansville,,,Switzerland/Brazil,Fr,club + national,13,12,0,25,"Paris-Tournament-ANGT,Czech-NBL,ULM-Tournament-ANGT; U16-AmeriCup 2023,U18-AmeriCup 2024",2025-02-09,0
+C,Daniil Stolbetskiy,223055,Robert Morris,,,Russia,Fr,club only,25,0,0,25,"Spanish-Primera-FEB,Belgrade-Tournament-ANGT",2026-04-04,0
+C,Mathias Alessanco,217128,South Carolina,,,Brazil,Fr,club + national,2,23,0,25,"Munich-Tournament-ANGT,Brazilian-NBB; AmeriCup-Qualifiers 2024,Americas-World-Cup-Qualifier 2025,Albert-Schweitzer-Tournament 2026,U16-AmeriCup 2023,U18-AmeriCup 2024",2026-04-11,0
+C,Maxime Meyer,217141,Duke,,,Canada,Fr,national only,0,25,0,25,"U19-World-Cup 2025,U18-AmeriCup 2026,U16-AmeriCup 2023,U17-World-Cup 2024",2026-06-07,0
+C,Lucas Morillo,217164,Illinois,,,Dominican Republic,Fr,national only,0,24,1,25,"U19-World-Cup 2025,U16-AmeriCup 2023,U17-CentroBasket 2023,U18-AmeriCup 2024; nike_hoop_summit",2026-04-11,0
+C,Brian Angeletti,211758,Niagara,,,Italy,Fr,club + national,4,20,0,24,"adidas-Next-Generation-Tournament; U20-Euro-Championship-A 2026,U17-World-Cup 2024,Albert-Schweitzer-Tournament 2024",2026-07-19,0
+C,Sinan Huan,216554,Purdue,,,China,Fr,national only,0,22,1,23,"U19-World-Cup 2025,U16-Asia-Cup 2023,U17-World-Cup 2024,U18-Asia-Cup-A 2024; nike_hoop_summit",2026-04-11,0
+C,Joost Dalgaard-Duus,219492,Boston University,,,Denmark,Fr,national only,0,23,0,23,"U16-Euro-Championship-B 2023,U18-Euro-Championship-A 2024,U18-Euro-Championship-B 2025",2025-08-03,0
+C,Alex Alexakis,219792,High Point,,,Greece,Fr,club + national,3,20,0,23,"Dubai-Tournament-ANGT; U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2024,Albert-Schweitzer-Tournament 2024",2024-08-04,0
+C,Xabier Lopez,221059,Abilene Christian,,,Spain,Fr,club only,23,0,0,23,"Spanish-Segunda-FEB,Spanish-Liga-U",2026-04-17,0
+C,Petar Ivancic,225069,Cal State Bakersfield,,,Croatia,Fr,club + national,15,7,0,22,"Adriatic-Junior-Liga-ABA,Podgorica-Tournament-ANGT,Croatian-A-1-Liga,FIBA-Europe-Cup; U20-Euro-Championship-A 2026",2026-07-19,0
+C,Birkir Eythorsson,201968,Austin Peay,,,Iceland,Fr,national only,0,22,0,22,"U16-Euro-Championship-B 2022,U18-Euro-Championship-B 2023,U18-Euro-Championship-B 2024",2024-08-04,0
+C,Jordan Charles,206353,UC Santa Barbara,,,Canada,Fr,national only,0,20,0,20,"U19-World-Cup 2025,U16-AmeriCup 2023,U17-World-Cup 2024",2025-07-06,0
+C,Ajak Nyuon,227217,Arizona State,,,Australia,Fr,national only,0,20,0,20,"U19-World-Cup 2025,U17-World-Cup 2024,U18-Asia-Cup-A 2024",2025-07-06,0
+C,David Musis,236681,Florida Atlantic,,,Israel,Fr,national only,0,20,0,20,"U18-Euro-Championship-A 2026,U16-Euro-Championship-A 2024,U18-Euro-Championship-A 2025",2026-08-02,0
+C,Alexander Dickeson,220725,Colorado,,,Australia,Fr,national only,0,20,0,20,"U19-World-Cup 2025,U16-Asia-Cup 2023,U17-World-Cup 2024",2025-07-06,0
+C,Moustapha Ndao,199735,Albany,,,Qatar,Fr,national only,0,20,0,20,"Asia-Cup-Qualifiers 2024,FIBA-Asia-Cup-A 2025,Asian-World-Cup-Qualifier 2025,U16-Asia-Cup 2022,U18-Asia-Cup-A 2022",2026-07-05,0
+C,Dimitrios Ntapsis,219789,Duquesne,,,Greece,Fr,club + national,5,14,0,19,"Paris-Tournament-ANGT,Munich-Tournament-ANGT; U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2025",2025-08-03,0
+C,Mading Kuany,211246,Georgia,,,Australia,Fr,national only,0,19,0,19,"U19-World-Cup 2025,U16-Asia-Cup 2023,U17-World-Cup 2024",2025-07-06,0
+C,Patrick Otto Mae,201634,Northern Kentucky,,,Estonia,Fr,national only,0,19,0,19,"U20-Euro-Championship-B 2026,U18-Euro-Championship-B 2024,U20-Euro-Championship-B 2025",2026-07-19,0
+C,David Ike,216055,Georgia,,,Nigeria,Fr,club + national,12,6,0,18,"Basketball-Africa-League--Qualification,Basketball-Africa-League; U18-AfroBasket 2024",2025-06-09,0
+C,Petar Miovic,201648,Albany,,,Croatia,Fr,club + national,13,5,0,18,Croatian-A-1-Liga; U16-Euro-Championship-A 2022,2024-02-04,0
+C,Amadou Seini,237771,West Virginia,,,Cameroon,Fr,national only,0,18,0,18,"U19-World-Cup 2025,FIBA-AfroBasket 2025,U18-AfroBasket 2024",2025-08-24,0
+C,Julian Dabrowski,219903,UC Davis,,,Poland,Fr,club + national,5,12,0,17,"Polish-OBL; U16-Euro-Championship-A 2023,U18-Euro-Championship-B 2024",2025-06-02,0
+C,Yannis Steger,236884,Siena,,,Germany,Fr,club only,17,0,0,17,"German-Pro-A,German-BBL",2026-04-20,0
+C,Ousseynou Sambe,211971,Tennessee-Martin,,,Senegal,Fr,club + national,11,6,0,17,"Basketball-Africa-League,Swiss-LNA; U18-AfroBasket 2024",2025-06-13,0
+C,Isaac Riddle,220732,Wisconsin,,,Australia,Fr,national only,0,16,0,16,"U17-Oceania-Championship 2025,U18-Asia-Cup-A 2026,U16-Asia-Cup 2023",2026-08-23,0
+C,Marcus McDonald,203160,New Orleans,,,Jamaica,Fr,national only,0,16,0,16,"Americas-World-Cup-Qualifier 2025,U17-CentroBasket 2021,U17-CentroBasket 2023",2026-07-06,0
+C,Atakan Bicer,183748,Queens University,,,Turkiye,Fr,club + national,5,11,0,16,"Eurocup,Turkish-BSL,Turkish-Cup; U16-Euro-Challengers 2021,U20-Euro-Championship-B 2025",2026-03-22,0
+C,Kabir Narasimhan,219718,Harvard,,,Switzerland,Fr,national only,0,15,0,15,"U16-Euro-Championship-B 2023,U18-Euro-Championship-B 2024",2024-08-04,0
+C,Rafayel Masumyan,235504,Evansville,,,Armenia,Fr,national only,0,15,0,15,"U16-Euro-Championship-C 2024,U18-Euro-Championship-C 2024,U18-Euro-Championship-C 2025",2025-07-27,0
+C,Kobe McDowell-White,217027,Chattanooga,,,Australia,Fr,club only,15,0,0,15,"Australian-NBL,NBL-Blitz,Intercontinental-Cup",2026-02-13,0
+C,,204892,Houston,,,Canada/Guinea,Fr,national only,0,14,1,15,"U16-AfroBasket 2023,U17-World-Cup 2024; mcdonalds",2026-03-31,0
+C,Jovan Nekic,193912,Utah Valley,,,Serbia,Fr,club only,14,0,0,14,"Serbian-KLS,Belgrade-Tournament-ANGT",2025-04-17,0
+C,Aaron Ekwere,236285,The Citadel,,,Finland,Fr,national only,0,14,0,14,"U18-Euro-Championship-A 2024,U20-Euro-Championship-A 2025",2025-07-20,0
+C,Steven Huan,220760,UMBC,,,China,Fr,national only,0,13,0,13,"U19-World-Cup 2025,U18-Asia-Cup-A 2024",2025-07-06,0
+C,Justin Roman,217180,Florida International,,,Puerto Rico,Fr,national only,0,13,0,13,"U16-AmeriCup 2023,U17-World-Cup 2024",2024-07-07,0
+C,Henry Sewell,220733,Portland,,,Australia,Fr,national only,0,13,0,13,"U16-Asia-Cup 2023,U17-World-Cup 2024",2024-07-07,0
+C,Djafar Silimana,200165,Houston,,,Mali,Fr,national only,0,12,0,12,"U17-World-Cup 2022,U18-AfroBasket 2024",2024-09-14,0
+C,Jake Holmes,250050,UC Davis,,,New Zealand,Fr,club only,11,0,0,11,New-Zealand-NBL,2026-05-09,0
+C,Ralfs Rudusans,201792,Lehigh,,,Latvia,Fr,national only,0,11,0,11,"U16-Euro-Championship-A 2023,U18-Euro-Championship-A 2025",2025-08-03,0
+C,Andrej Radivojevic,218571,USC Upstate,,,Switzerland,Fr,national only,0,11,0,11,"U19-World-Cup 2025,U18-Euro-Championship-B 2023,U18-Euro-Championship-B 2024",2025-07-06,0
+C,Andres Amon,250444,Siena,,,Spain,Fr,club + national,3,6,0,9,Spanish-Primera-FEB; U20-Euro-Championship-A 2026,2026-07-19,0
+C,Noah Limol,252695,Mount St. Mary's,,,France,Fr,club only,9,0,0,9,"French-Basketball-Cup,French-LNB-Pro-B",2026-04-11,0
+C,,194106,West Virginia,,,Canada,Fr,national only,0,7,2,9,"U17-World-Cup 2024; nike_hoop_summit,jordan_classic",2026-04-17,0
+C,Carlos Varelo Romero,208651,UMBC,,,Spain,Fr,club only,8,0,0,8,Spanish-Primera-FEB,2026-03-20,0
+C,Jackson Kiss,231083,UNLV,,,New Zealand,Fr,club + national,1,7,0,8,New-Zealand-NBL; U17-World-Cup 2024,2024-07-07,0
+C,Marko Maric,250638,Butler,,,Croatia,Fr,club + national,2,5,0,7,Adriatic-Junior-Liga-ABA; U18-Euro-Championship-B 2025,2025-11-30,0
+C,Nino Zarkovic,201653,Columbia,,,Croatia,Fr,national only,0,7,0,7,U16-Euro-Championship-A 2022,2022-08-20,0
+C,Jahrel Vigo,235355,Buffalo,,,Puerto Rico,Fr,national only,0,7,0,7,U17-World-Cup 2024,2024-07-07,0
+C,Dimitrije Pavlovic,241783,Bradley,,,Serbia,Fr,club only,7,0,0,7,"Adriatic-League-Liga-ABA,Adriatic-Junior-Liga-ABA",2025-04-09,0
+C,Heimir Helgason,219585,Massachusetts,,,Iceland,Fr,national only,0,7,0,7,U16-Euro-Championship-B 2023,2023-08-13,0
+C,Mahliq Guiseppi-Kitson,233900,Sam Houston State,,,Canada,Fr,national only,0,7,0,7,U17-World-Cup 2024,2024-07-07,0
+C,J.P. Pihtovs,245692,San Francisco,,,Latvia,Fr,national only,0,7,0,7,U18-Euro-Championship-A 2025,2025-08-03,0
+C,T.J. Wal,234533,Idaho,,,Canada,Fr,national only,0,7,0,7,U17-World-Cup 2024,2024-07-07,0
+C,Andy Gemao,199657,Penn State,,,Philippines,Fr,national only,0,6,0,6,U16-Asia-Cup 2022,2022-06-19,0
+C,Omar Mowafak,237784,Utah Valley,,,Egypt,Fr,national only,0,6,0,6,U18-AfroBasket 2024,2024-09-14,0
+C,Kamai Samuels,216209,Tennessee Tech,,,Canada,Fr,national only,0,6,0,6,U16-AmeriCup 2023,2023-06-11,0
+C,Gedeon Basson,250196,Xavier,,,Cameroon,Fr,national only,0,6,0,6,U19-World-Cup 2025,2025-07-06,0
+C,Koby Moir,250096,UC Davis,,,Australia,Fr,national only,0,5,0,5,U17-Oceania-Championship 2025,2025-12-13,0
+C,Mason Fuentes,217175,Stetson,,,Puerto Rico,Fr,national only,0,5,0,5,U16-AmeriCup 2023,2023-06-10,0
+C,Francesco Corato,227933,Portland State,,,Italy,Fr,club only,5,0,0,5,"Podgorica-Tournament-ANGT,Istanbul-Tournament-ANGT",2024-11-29,0
+C,Luke Cruz,235358,Columbia,,,Puerto Rico,Fr,national only,0,4,0,4,U17-World-Cup 2024,2024-07-05,0
+C,Daniel Emokhare,242266,Niagara,,,Italy,Fr,club only,4,0,0,4,"Italian-Lega-Basket-Serie-A,Youth-Basketball-Champions-League-Europe",2026-04-26,0
+C,Nnadalu Noble,230004,UC Davis,,,Austria,Fr,club only,3,0,0,3,Austrian-A-Bundesliga,2024-04-13,0
+C,Moustapha Diop,218634,Georgia Tech,,,Senegal,Fr,club only,3,0,0,3,adidas-Next-Generation-Tournament,2024-05-25,0
+C,Iker Martinez,218906,Syracuse,,,Mexico,Fr,national only,0,3,0,3,U17-CentroBasket 2023,2023-07-28,0
+C,,201935,Houston,,,Nigeria,Fr,showcase only,0,0,2,2,nike_hoop_summit,2026-04-11,0
+C,Vuk Visnjic,254315,Lipscomb,,,Serbia,Fr,club only,2,0,0,2,Serbian-KLS,2025-10-11,0
+C,Marko Kovac,201645,California Baptist,,,Croatia,Fr,club only,2,0,0,2,Adriatic-Junior-Liga-ABA,2023-11-23,0
+C,Aleksandar Zecevic,254804,Penn State,,,Serbia,Fr,club only,1,0,0,1,Spanish-ACB,2026-01-10,0
+C,Deng Manyang,251920,George Washington,,,Australia,Fr,club only,1,0,0,1,Australian-NBL,2025-12-24,0
+C,Austin Foxwell,250446,Portland,,,Australia,Fr,club only,1,0,0,1,Australian-NBL,2025-12-20,0
