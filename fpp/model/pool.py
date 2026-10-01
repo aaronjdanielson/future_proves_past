@@ -31,6 +31,11 @@ CONTEXT_FIELDS = ["regulation", "home", "opp_adj_o", "opp_adj_d", "opp_adj_pace"
                   "opp_hist_winpct", "opp_hist_placement", "team_hist_winpct", "team_hist_placement",
                   "opp_record_winpct", "opp_record_margin"]
 CONTEXT_INDEX = [F.FIELD_NAMES.index(f) for f in CONTEXT_FIELDS]
+
+
+def context_index(field_names: list[str]) -> list[int]:
+    """Positions of the context fields in a schema's field list (the context fields are base fields, D-065)."""
+    return [list(field_names).index(f) for f in CONTEXT_FIELDS]
 TARGET_REGULATION = 40.0
 MINUTES_STEP = 1.0 / 60.0     # international game minutes are recorded to the second
 MAX_TARGET_MINUTES = 65.0     # a 40-minute game with up to five overtimes; larger values are data defects
@@ -61,7 +66,8 @@ class PoolSampler:
         self.cutoff = float(cutoff_days)
         self.rng = np.random.default_rng(seed)
         self.min_prefix = min_prefix
-        col = {name: j for j, name in enumerate(F.FIELD_NAMES)}
+        col = {name: j for j, name in enumerate(store.schema.field_names)}
+        self.context_index = context_index(store.schema.field_names)
         raw = store.raw
         minutes_raw = np.expm1(raw[:, col["minutes"]])                  # fields are stored log1p-transformed
         minutes_ok = ~np.isnan(minutes_raw) & (minutes_raw >= 0) & (minutes_raw <= MAX_TARGET_MINUTES)
@@ -101,10 +107,10 @@ class PoolSampler:
         intl = F.build_channel(store, prefix, cutoff_days=target_date, target_days=target_date, normalizer=self.normalizer)
         raw = store.continuous(np.array([row]), target_date)
         z, mask = self.normalizer.games(raw)
-        context, context_mask = z[0, CONTEXT_INDEX], mask[0, CONTEXT_INDEX]
+        context, context_mask = z[0, self.context_index], mask[0, self.context_index]
         # Static inputs: everything NCAA- or destination-derived is hidden; only age (when known) survives.
-        static = np.full(len(F.STATIC_CONTINUOUS), np.nan)
-        col = {name: j for j, name in enumerate(F.FIELD_NAMES)}
+        static = np.full(len(store.schema.static_continuous), np.nan)     # age_at_cutoff is index 0 in every schema
+        col = {name: j for j, name in enumerate(store.schema.field_names)}
         age = raw[0, col["age_at_game"]]
         static[0] = age
         s_z, s_mask = self.normalizer.static(static[None, :])
@@ -126,8 +132,8 @@ class PoolSampler:
                            s_z[0], s_mask[0], t_v, t_m, targets)
 
 
-def collate_pool(examples: list[PoolExample], n_static_categorical: int = len(F.STATIC_CATEGORICAL)) -> dict:
-    empty = F.Channel.empty(len(F.FIELD_NAMES))
+def collate_pool(examples: list[PoolExample], n_static_categorical: int = len(F.STATIC_CATEGORICAL), n_fields: int | None = None) -> dict:
+    empty = F.Channel.empty(len(F.FIELD_NAMES) if n_fields is None else int(n_fields))
     batch = {
         "intl": F._pad_channel([e.intl for e in examples]),
         "ncaa": F._pad_channel([empty for _ in examples]),

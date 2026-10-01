@@ -89,6 +89,18 @@ def main(argv=None) -> int:
                        help="nested window sizes in post-NCAA seasons, comma-separated; 'all' adds one window over every admissible season")
     train.add_argument("--label-scope", choices=["all", "first_year"], default="all",
                        help="training labels: every NCAA season (registered, D-021/D-023) or first D1 seasons only, forward and reconstruction (D-060)")
+    train.add_argument("--weighting", choices=["player_balanced", "season_balanced"], default="player_balanced",
+                       help="loss weights per direction: the registered player-balanced rule, or every unit equal (D-062)")
+    train.add_argument("--first-year-share", default="natural",
+                       help="D-062: mass share of first-season units per direction (e.g. 0.5), also the early-stopping weighting; "
+                            "'natural' keeps the base weights")
+    train.add_argument("--feature-schema", choices=["auto", "v7", "v8", "v9"], default="auto",
+                       help="D-065: 'auto' = v8 when the tables carry recruit_status else v7 (the pre-D-065 rule); v9 adds --feature-blocks")
+    train.add_argument("--feature-blocks", default=None,
+                       help="v9 blocks, comma-separated (default: all): prior_league, usage, destination, intl_rapm, on3")
+    train.add_argument("--cross-stop", type=int, choices=[0, 1], default=None,
+                       help="D-067: early-stop on this half of the validation season's players (fixed split); the other half "
+                            "trains. Run 0 and 1 as a pair and pool them; the test season stays fully held out")
     train.add_argument("--deploy", action="store_true",
                        help="deployment (D-051): fold = test season + 1, train through the test season - 1, early-stop on the test season, no evaluation")
     train.add_argument("--test-registration", type=Path,
@@ -148,6 +160,8 @@ def main(argv=None) -> int:
                     raise SystemExit("--recon-horizon-years must be a whole number of years or 'none'")
                 horizon = int(horizon)             # calendar arithmetic needs an integer year count
             recon_k = tuple(None if part.strip().lower() == "all" else int(part) for part in str(args.recon_k).split(",") if part.strip())
+            fy_share = None if str(args.first_year_share).lower() == "natural" else float(args.first_year_share)
+            blocks = None if args.feature_blocks is None else tuple(b.strip() for b in str(args.feature_blocks).split(",") if b.strip())
             payload = run_arm(tables=args.tables, fold_season=args.fold, arm=args.arm, seed=args.seed, out=args.out,
                               epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, patience=args.patience,
                               nodes_train=args.nodes_train, nodes_eval=args.nodes_eval, max_train_units=args.max_train_units,
@@ -158,7 +172,8 @@ def main(argv=None) -> int:
                               exclude_post_first_season_logs=args.exclude_post_first_season_logs,
                               recon_holdout_share=args.recon_holdout_share,
                               allow_test=args.test_registration is not None and not args.deploy, test_registration=args.test_registration,
-                              deploy=args.deploy, label_scope=args.label_scope)
+                              deploy=args.deploy, label_scope=args.label_scope, weighting=args.weighting, first_year_share=fy_share,
+                              feature_schema=args.feature_schema, feature_blocks=blocks, cross_stop=args.cross_stop)
             result = {"saved": str(args.out), "arm": args.arm, "model": args.model, "fold": args.fold, "seed": args.seed,
                       "counts": payload["counts"], "training": {"epochs_run": payload["training"]["epochs_run"],
                                                                  "best_stop_nll": payload["training"]["best_stop_nll"],

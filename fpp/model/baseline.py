@@ -43,11 +43,13 @@ class AggregateChannel(nn.Module):
 
 
 class AggregateBaseline(nn.Module):
-    def __init__(self, vocab_sizes: list[int], static_vocab_sizes: list[int], reference: SeasonParameters | None = None):
+    def __init__(self, vocab_sizes: list[int], static_vocab_sizes: list[int], reference: SeasonParameters | None = None,
+                 n_fields: int | None = None, n_static: int | None = None):
         super().__init__()
-        self.intl = AggregateChannel(len(F.FIELD_NAMES), vocab_sizes)
-        self.ncaa = AggregateChannel(len(F.FIELD_NAMES), vocab_sizes)
-        self.translator = Translator(static_vocab_sizes)
+        n_fields = len(F.FIELD_NAMES) if n_fields is None else int(n_fields)     # schema width (D-065)
+        self.intl = AggregateChannel(n_fields, vocab_sizes)
+        self.ncaa = AggregateChannel(n_fields, vocab_sizes)
+        self.translator = Translator(static_vocab_sizes, n_static)
         self.heads = OutcomeHeads(reference)
 
     def represent(self, batch: dict) -> torch.Tensor:

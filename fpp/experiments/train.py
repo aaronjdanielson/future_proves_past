@@ -7,7 +7,10 @@ are scored once with the selected epoch. Arms available here:
 * ``A`` — forward supervision only;
 * ``D`` — forward plus reconstruction windows of training units (seasons
   $\\le v-2$, so no early-stopping label is reconstructed), weighted per
-  direction by the paper's player-balanced rule.
+  direction by the paper's player-balanced rule or, under
+  ``weighting="season_balanced"`` with a ``first_year_share`` (D-062), by
+  unit with first seasons carrying that share; the early-stopping score is
+  then the same first-season-weighted mean over the stopping season.
 
 Pretraining-pool arms (B, C, C_shuf) need the pool objective and come with
 milestone 0.4. The intercept-only model fitted by L-BFGS on the training
@@ -31,7 +34,7 @@ from ..data.folds import Fold, player_index
 from ..data.manifests import file_sha256, load_manifest, write_manifest
 from ..data.tables import read_tables
 from ..model import features as F
-from ..model.dataset import FoldDataset, cohort_masks
+from ..model.dataset import FoldDataset, cohort_masks, first_year_flags, stratum_weights
 from ..model.distributions import SeasonParameters
 from ..model.baseline import AggregateBaseline
 from ..model.observation import SummedRoundingSensitivityKernel
@@ -54,10 +57,31 @@ def _subset(ds: FoldDataset, unit_mask: np.ndarray, window_mask: np.ndarray | No
     return dataclasses.replace(ds, train_units=units, windows=windows)
 
 
-def _examples_by_season(ds: FoldDataset, *, train_max_season: int, stop_season: int, use_windows: bool):
+CROSS_STOP_SALT = 20260930      # D-067: fixed, seed-independent, so the two halves of a pair are exact complements
+
+
+def cross_stop_halves(players) -> tuple[set, set]:
+    """Split the validation season's players into two balanced halves by a fixed permutation (D-067)."""
+    p = np.array(sorted(int(x) for x in players), dtype=np.int64)
+    perm = np.random.default_rng(CROSS_STOP_SALT).permutation(len(p))
+    cut = (len(p) + 1) // 2
+    return set(p[perm[:cut]].tolist()), set(p[perm[cut:]].tolist())
+
+
+def season_masks(tu: pd.DataFrame, *, train_max_season: int, stop_season: int, stop_players=None):
+    """Training and early-stopping unit masks. Without ``stop_players`` the whole validation season stops training
+    (registered rule); with them (D-067 cross-stopping) only those players' validation-season units stop it, and the
+    other half's validation-season units join the training labels."""
+    season = tu["season"].to_numpy()
+    if stop_players is None:
+        return season <= train_max_season, season == stop_season
+    in_stop = tu["player_id"].isin(stop_players).to_numpy()
+    return (season <= train_max_season) | ((season == stop_season) & ~in_stop), (season == stop_season) & in_stop
+
+
+def _examples_by_season(ds: FoldDataset, *, train_max_season: int, stop_season: int, use_windows: bool, stop_players=None):
     tu = ds.train_units
-    train_mask = (tu["season"] <= train_max_season).values
-    stop_mask = (tu["season"] == stop_season).values
+    train_mask, stop_mask = season_masks(tu, train_max_season=train_max_season, stop_season=stop_season, stop_players=stop_players)
     win_mask = None
     if use_windows and len(ds.windows):
         keep = set(tu.loc[train_mask, "unit_id"])
@@ -67,8 +91,11 @@ def _examples_by_season(ds: FoldDataset, *, train_max_season: int, stop_season: 
         raise RuntimeError("Dataset subset lost the D-041 exclusion mask")
     train = sub.training_examples()
     stop = [e for e in _subset(ds, stop_mask).training_examples() if e.direction == "-"]
-    for e in stop:
-        e.weight = 1.0
+    # Stopping weights: one per unit (a single season, so player- and season-balancing coincide), rebalanced to the
+    # dataset's first-season share when one is set (D-062); otherwise every stop unit weighs one, as registered.
+    stop_w = stratum_weights(np.ones(len(stop)), first_year_flags(tu[stop_mask]), ds.first_year_share)
+    for e, w in zip(stop, stop_w):
+        e.weight = float(w)
     return train, stop
 
 
@@ -121,7 +148,7 @@ def pretrain(tower, *, store, normalizer, cutoff_days: float, heldout, seed: int
         examples = sampler.sample(examples_per_epoch)
         losses, invalid = [], 0
         for group in _batches(examples, batch_size, rng):
-            batch = collate_pool(group, len(tower.translator.embeddings))
+            batch = collate_pool(group, len(tower.translator.embeddings), n_fields=len(store.schema.field_names))
             params = tower.pretrain_forward(batch)
             sb = SeasonBatch(batch["games"], batch["starts"], batch["minutes"], batch["counts"], batch["schedule"],
                              batch["overtime"].long(), batch["overtime_known"])
@@ -243,9 +270,13 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             pretrain_epochs: int = 3, pretrain_examples: int = 60000, pretrained_dir: Path = Path("cache/pretrained"),
             recon_max_years: float | None = 4, recon_k: tuple = (1, 2, 3), resume: bool = False,
             exclude_post_first_season_logs: bool = False, recon_holdout_share: float = 0.0,
-            test_registration: Path | None = None, deploy: bool = False, label_scope: str = "all") -> dict:
+            test_registration: Path | None = None, deploy: bool = False, label_scope: str = "all",
+            weighting: str = "player_balanced", first_year_share: float | None = None,
+            feature_schema: str = "auto", feature_blocks=None, cross_stop: int | None = None) -> dict:
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {sorted(ARMS)}; D (C plus forward fine-tuning) is not implemented")
+    if cross_stop not in (None, 0, 1):
+        raise ValueError("cross_stop must be 0, 1 or None")
     if model_kind not in {"tower", "aggregate"}:
         raise ValueError("model_kind must be 'tower' (reference) or 'aggregate' (feature baseline)")
     if arm in PRETRAIN_ARMS and model_kind != "tower":
@@ -287,11 +318,15 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     test_players = (frozenset() if deploy else
                     frozenset(units.loc[(units["season"] == protocol_test) & units["intl_entrant"], "player_id"]))
     dobs = F.player_dobs(tab)
-    store = F.GameStore.from_frame(tab["games"], dobs=dobs)
+    # Feature schema (D-065): "auto" reproduces the pre-D-065 rule (v8 iff the tables carry recruit_status); v9 adds blocks.
+    fs = F.resolve_schema(feature_schema, feature_blocks, units)
+    store = F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs)
+    n_fields, n_static = len(fs.field_names), len(fs.static_continuous)
     fold = Fold(fold_season, "deployment" if deploy else "development" if fold_season <= 2023 else "selection" if fold_season < protocol_test else "test")
     ds = FoldDataset.build(tab, fold, store, test_cohort_players=test_players, index=player_index(tab["games"]), seed=seed,
                            exclude_assumed_zeros=exclude_assumed_zeros, k_values=tuple(recon_k), max_years=recon_max_years,
-                           exclude_post_first_season=exclude_post_first_season_logs, label_scope=label_scope)
+                           exclude_post_first_season=exclude_post_first_season_logs, label_scope=label_scope,
+                           weighting=weighting, first_year_share=first_year_share)
     if max_train_units is not None:
         keep = ds.train_units.sample(n=min(max_train_units, len(ds.train_units)), random_state=seed)
         ds = dataclasses.replace(ds, train_units=keep.reset_index(drop=True),
@@ -299,14 +334,20 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     # Players of the stopping season are held out of the pool and of reconstruction windows (D-033): nothing
     # dated after their validation cutoff may shape the representation that scores them. Their earlier
     # units remain forward training examples (earlier labels, inputs before those units' own cutoffs).
-    stop_players = set(ds.train_units.loc[ds.train_units["season"] == fold_season - 1, "player_id"])
+    season_players = set(ds.train_units.loc[ds.train_units["season"] == fold_season - 1, "player_id"])
+    # D-067 cross-stopping: only the stopping half is held out; the other half's validation-season units are training labels.
+    stop_players = season_players if cross_stop is None else cross_stop_halves(season_players)[cross_stop]
+    cross_stop_info = None if cross_stop is None else {
+        "stopping_half": cross_stop, "salt": CROSS_STOP_SALT, "validation_season_players": len(season_players),
+        "stop_players": len(stop_players), "players_trained_from_validation_season": len(season_players - stop_players)}
     if len(ds.windows):
         ds = dataclasses.replace(ds, windows=ds.windows[~ds.windows["player_id"].isin(stop_players)], heldout=ds.heldout | stop_players)
     if exclude_post_first_season_logs:
         # D-041 guard: the exclusion must survive every dataset rebuild above (a dropped mask reproduces arm A exactly).
         if ds.excluded_rows is None or int(ds.excluded_rows.sum()) == 0:
             raise RuntimeError("Strict control requested but no game rows are excluded")
-    train, stop = _examples_by_season(ds, train_max_season=fold_season - 2, stop_season=fold_season - 1, use_windows=(arm in RECON_ARMS))
+    train, stop = _examples_by_season(ds, train_max_season=fold_season - 2, stop_season=fold_season - 1, use_windows=(arm in RECON_ARMS),
+                                      stop_players=None if cross_stop is None else stop_players)
     recon_holdout, recon_test = None, []
     if recon_holdout_share > 0 and arm in RECON_ARMS:
         train, recon_test, held_players = split_reconstruction_holdout(train, recon_holdout_share, np.random.default_rng(seed + 13))
@@ -317,6 +358,16 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     shuffle_info = shuffle_reconstruction_targets(train, ds.train_units, np.random.default_rng(seed + 7)) if arm == "C_shuf" else None
     forward_examples = [e for e in train if e.direction == "-"]
     recon_examples = [e for e in train if e.direction == "+"]
+    # Realized first-season mass share per direction (D-062 bookkeeping; the registered rule gives 1/2 forward by construction).
+    fy_of_unit = dict(zip(ds.train_units["unit_id"], first_year_flags(ds.train_units)))
+    def _fy_share(group):
+        tot = sum(e.weight for e in group)
+        return float(sum(e.weight for e in group if fy_of_unit.get(e.unit_id, False)) / tot) if tot > 0 else None
+    mass_shares = {"forward_first_year_mass_share": _fy_share(forward_examples),
+                   "reconstruction_first_year_mass_share": _fy_share(recon_examples),
+                   "stop_first_year_mass_share": _fy_share(stop)}
+    stop_weights = np.array([e.weight for e in stop], dtype=float)
+    stop_criterion = "first_year_share_weighted_mean" if first_year_share is not None else "unweighted_mean"
     evaluate = ds.evaluation_examples()
     t_data = time.time() - t0
     n_fwd = sum(e.direction == "-" for e in train)
@@ -340,7 +391,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         # One seed-matched pool checkpoint per fold, built once and reused by B, C, and C_shuf (D-032).
         from ..model.pool import CONTEXT_FIELDS
         from ..model.tower import OutcomeHeads
-        tower = ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_context=len(CONTEXT_FIELDS))
+        tower = ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_context=len(CONTEXT_FIELDS),
+                               n_fields=n_fields, n_static=n_static)
         ckpt = Path(pretrained_dir) / f"pool_{fold_season}_{seed}.pt"
         if ckpt.exists():
             pretrained_info = load_manifest(ckpt.with_suffix(".json"))
@@ -353,11 +405,17 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         tower.load_state_dict(torch.load(ckpt, weights_only=True))
         tower.heads = OutcomeHeads(base_model.reference())     # forward heads start at the fitted intercepts, as in A
     else:
-        tower = (ReferenceTower(vocab_sizes, static_sizes, base_model.reference()) if model_kind == "tower"
-                 else AggregateBaseline(vocab_sizes, static_sizes, base_model.reference()))
+        tower = (ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static) if model_kind == "tower"
+                 else AggregateBaseline(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static))
     optimizer = torch.optim.Adam(tower.parameters(), lr=lr)
     curve, best, best_state, bad_epochs = [], math.inf, None, 0
-    stop_nll_base = float(np.mean(_score(lik_eval, stop, batch_size=batch_size, params=base_params)))
+
+    def _stop_scores(scores: np.ndarray) -> tuple[float, float]:
+        """(unweighted mean, first-season-share-weighted mean) over the stopping units; an infinite row makes both infinite."""
+        return float(np.mean(scores)), float((stop_weights * scores).sum() / stop_weights.sum())
+
+    base_stop = _stop_scores(_score(lik_eval, stop, batch_size=batch_size, params=base_params))
+    stop_nll_base = base_stop[0] if first_year_share is None else base_stop[1]
     t2 = time.time()
     # Matched optimization (D-033): every arm takes exactly one optimizer step per forward minibatch, and the
     # forward minibatch sequence depends only on the seed, so B and C see identical forward batches; a
@@ -423,8 +481,10 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             optimizer.step()
             losses.append(float(loss.detach()))
         tower.eval()
-        stop_nll = float(np.mean(_score(lik_eval, stop, batch_size=batch_size, tower=tower)))   # marginal, like the reported score
-        curve.append({"epoch": epoch + 1, "train_loss": float(np.mean(losses)), "stop_nll": stop_nll, "invalid_rows": invalid,
+        stop_mean, stop_weighted = _stop_scores(_score(lik_eval, stop, batch_size=batch_size, tower=tower))   # marginal, like the reported score
+        stop_nll = stop_mean if first_year_share is None else stop_weighted     # the selection criterion (D-062)
+        curve.append({"epoch": epoch + 1, "train_loss": float(np.mean(losses)), "stop_nll": stop_nll, "stop_nll_unweighted": stop_mean,
+                      "stop_nll_first_year_weighted": stop_weighted, "invalid_rows": invalid,
                       "seconds": time.time() - t2, "wall_seconds": time.time() - t_epoch, "cpu_seconds": time.process_time() - c_epoch})
         active["wall_seconds"] += curve[-1]["wall_seconds"]
         active["cpu_seconds"] += curve[-1]["cpu_seconds"]
@@ -507,6 +567,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "score_definition": "marginal NLL of (G, J, M, B) with overtime summed out (paper eq. observation); "
                                        "training conditions on observed overtime where certified",
                    "exclude_assumed_zeros": exclude_assumed_zeros, "lambda_plus": lambda_plus, "deploy": deploy, "label_scope": label_scope,
+                   "weighting": weighting, "first_year_share": first_year_share, "stop_criterion": stop_criterion,
+                   "feature_schema": {**fs.describe(), "missing_game_fields": list(store.missing_fields)},
                    "post_first_season_logs": ("excluded from every input channel, the pool and reconstruction (D-041 strict control)"
                                               if exclude_post_first_season_logs else "included"),
                    "excluded_game_rows": int(ds.excluded_rows.sum()) if ds.excluded_rows is not None else 0,
@@ -514,7 +576,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                                               "horizon": "training cutoff" if recon_max_years is None else f"{recon_max_years} years after the season end",
                                               "windows": int(len(ds.windows)), "units": int(ds.windows["unit_id"].nunique()) if len(ds.windows) else 0},
                    "pretraining": pretrained_info, "shuffle": shuffle_info, "updates": updates,
-                   "stop_players_held_out_of_pool_and_reconstruction": len(stop_players),
+                   "stop_players_held_out_of_pool_and_reconstruction": len(stop_players), "cross_stop": cross_stop_info,
                    "matching": "one optimizer step per forward minibatch; forward batch order fixed by seed; "
                                "reconstruction batch of the same size added per step, separately normalized",
                    "tables_manifest": {"payload_sha256": tab["manifest"].get("payload_sha256"),
@@ -526,9 +588,9 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         "reconstruction_heldout": recon_holdout,
         "test_registration": ({"path": str(test_registration), "sha256": file_sha256(Path(test_registration))} if test_registration else None),
         "counts": {"train_forward": n_fwd, "train_reconstruction": n_rec, "stop_units": len(stop), "eval_units": len(evaluate),
-                   "eval_invalid": int((~finite).sum())},
+                   "eval_invalid": int((~finite).sum()), **mass_shares},
         "baseline": {"fit": baseline_fit, "parameters": {k: (v.tolist() if v.dim() else float(v)) for k, v in base_params.items()},
-                     "stop_nll": stop_nll_base},
+                     "stop_nll": stop_nll_base, "stop_nll_unweighted": base_stop[0], "stop_nll_first_year_weighted": base_stop[1]},
         "training": {"curve": curve, "best_stop_nll": best, "epochs_run": len(curve), "seconds": time.time() - t2},
         "timing": {"data_seconds": t_data, "baseline_seconds": t_base, "total_seconds": time.time() - t0},
         "evaluation": summary,

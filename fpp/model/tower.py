@@ -104,10 +104,11 @@ class ChannelPool(nn.Module):
 
 
 class Translator(nn.Module):
-    def __init__(self, static_vocab_sizes: list[int]):
+    def __init__(self, static_vocab_sizes: list[int], n_static: int | None = None):
         super().__init__()
         self.embeddings = nn.ModuleList([nn.Embedding(n + 1, EMBED) for n in static_vocab_sizes])
-        n_static = 2 * len(F.STATIC_CONTINUOUS) + EMBED * len(static_vocab_sizes)
+        self.n_static_continuous = len(F.STATIC_CONTINUOUS) if n_static is None else int(n_static)   # schema width (D-065)
+        n_static = 2 * self.n_static_continuous + EMBED * len(static_vocab_sizes)
         n_time = 2 * (3 + 2 * len(F.TIME_BASIS_CENTERS))
         self.net = _mlp(2 * D + n_static + n_time)
 
@@ -221,12 +222,13 @@ class ReferenceTower(nn.Module):
     """Encoder → per-channel pooling/fusion → translator → heads (+ the pool's next-game head)."""
 
     def __init__(self, vocab_sizes: list[int], static_vocab_sizes: list[int], reference: SeasonParameters | None = None,
-                 n_context: int = 0):
+                 n_context: int = 0, n_fields: int | None = None, n_static: int | None = None):
         super().__init__()
-        self.encoder = GameEncoder(len(F.FIELD_NAMES), vocab_sizes)
+        # Input widths follow the run's feature schema (D-065); the defaults are the registered v7 widths.
+        self.encoder = GameEncoder(len(F.FIELD_NAMES) if n_fields is None else int(n_fields), vocab_sizes)
         self.pool_intl = ChannelPool()
         self.pool_ncaa = ChannelPool()
-        self.translator = Translator(static_vocab_sizes)
+        self.translator = Translator(static_vocab_sizes, n_static)
         self.heads = OutcomeHeads(reference)
         self.pretrain_head = PretrainHead(self.encoder, n_context, reference) if n_context else None
 

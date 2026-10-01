@@ -214,23 +214,26 @@ def _rebuild(run_payload: dict, tables_dir: Path):
     protocol_test = int(units["season"].max())
     test_players = frozenset(units.loc[(units["season"] == protocol_test) & units["intl_entrant"], "player_id"])
     dobs = F.player_dobs(tab)
-    store = F.GameStore.from_frame(tab["games"], dobs=dobs)
+    cfg = run_payload["config"]
+    fs = F.schema_from_config(cfg, units)                        # the run's feature schema (D-065)
+    store = F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs)
     fold_season = int(run_payload["fold"])
     fold = Fold(fold_season, "development" if fold_season <= 2023 else "selection")
-    cfg = run_payload["config"]
     rw = cfg.get("reconstruction_windows") or {}
     ds = FoldDataset.build(tab, fold, store, test_cohort_players=test_players, index=player_index(tab["games"]),
                            seed=int(run_payload["seed"]), exclude_assumed_zeros=bool(cfg.get("exclude_assumed_zeros", False)),
                            k_values=tuple(rw.get("k_values", (1, 2, 3))), max_years=rw.get("max_years", 4),
                            exclude_post_first_season=str(cfg.get("post_first_season_logs", "included")).startswith("excluded"),
-                           label_scope=cfg.get("label_scope", "all"))
+                           label_scope=cfg.get("label_scope", "all"),
+                           weighting=cfg.get("weighting", "player_balanced"), first_year_share=cfg.get("first_year_share"))
     vocab_sizes = [len(store.vocab[c]) for c in F.CATEGORICAL]
     static_sizes = [len(v) for v in ds.static_vocab.values()]
     kind = run_payload.get("model", "tower")
     pretrained = run_payload.get("config", {}).get("pretraining") is not None
     from ..model.pool import CONTEXT_FIELDS
-    model = (ReferenceTower(vocab_sizes, static_sizes, SeasonParameters(), n_context=len(CONTEXT_FIELDS) if pretrained else 0)
-             if kind == "tower" else AggregateBaseline(vocab_sizes, static_sizes, SeasonParameters()))
+    widths = {"n_fields": len(fs.field_names), "n_static": len(fs.static_continuous)}
+    model = (ReferenceTower(vocab_sizes, static_sizes, SeasonParameters(), n_context=len(CONTEXT_FIELDS) if pretrained else 0, **widths)
+             if kind == "tower" else AggregateBaseline(vocab_sizes, static_sizes, SeasonParameters(), **widths))
     return tab, ds, model
 
 

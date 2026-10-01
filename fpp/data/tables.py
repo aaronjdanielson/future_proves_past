@@ -10,7 +10,8 @@ from ..serialization import to_jsonable
 from .manifests import file_sha256, load_manifest, write_manifest
 
 TABLE_NAMES = ("units", "competition_periods", "games")  # smallest first: a dtype failure costs no large write
-OPTIONAL_TABLE_NAMES = ("players",)                     # v8 and later (D-050): bios for every player in games or units
+OPTIONAL_TABLE_NAMES = ("players",                      # v8 and later (D-050): bios for every player in games or units
+                        "player_prior_league", "destination_context", "intl_rapm_anchor", "on3_rankings")   # v11 (D-065) blocks
 
 
 def write_tables(tables: dict, out_dir: Path, *, config: dict, fingerprints: dict) -> dict:

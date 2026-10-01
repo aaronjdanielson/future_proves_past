@@ -65,6 +65,113 @@ EVIDENCE_NAMES = ["n_games_log", "minutes_log", "coverage_share", "span_years", 
 TARGET_COUNTS = list(BOX_FIELDS)   # A2 K2 A3 K3 Af Kf ORB DRB AST STL BLK TOV PF — the COUNT_NAMES order
 
 
+# --------------------------------------------------------------------------- #
+# Feature schemas (D-065): v7 = the registered fields, v8 = v7 + recruiting status,
+# v9 = v8 + optional blocks from the sibling-model inventory (docs/SIBLING_FIELDS_2026_09_30.md)
+# --------------------------------------------------------------------------- #
+
+# (name, unit column, transform) in STATIC_CONTINUOUS order; the base static inputs of every schema.
+BASE_STATIC_CONTINUOUS = [
+    ("age_at_cutoff", "age_at_cutoff", "identity"), ("ncaa_seasons_completed", "ncaa_seasons_completed", "identity"),
+    ("first_year", "first_year", "identity"), ("height_cm", "height_cm", "identity"), ("weight_kg", "weight_kg", "identity"),
+    ("recruit_rank_log", "recruit_national_rank", "log1p"), ("recruit_composite", "recruit_composite_score", "identity"),
+    ("recruit_stars", "recruit_star_rating", "identity"),
+    ("dest_prior_adj_o", "dest_prior_adj_o", "identity"), ("dest_prior_adj_d", "dest_prior_adj_d", "identity"),
+    ("dest_prior_adj_pace", "dest_prior_adj_pace", "identity"), ("dest_prior_games_log", "dest_prior_games", "log1p"),
+]
+assert [n for n, _, _ in BASE_STATIC_CONTINUOUS] == STATIC_CONTINUOUS
+
+BLOCKS = ("prior_league", "usage", "destination", "intl_rapm", "on3")
+# Per-game fields of the optional blocks (tables v11 and later carry the columns; missing columns read as masked).
+BLOCK_GAME_FIELDS = {
+    "usage": [("usage_game", "usage_game", "identity"), ("pts_share", "pts_share", "identity"), ("fga_share", "fga_share", "identity"),
+              ("ast_share", "ast_share", "identity"), ("reb_share", "reb_share", "identity"), ("tov_share", "tov_share", "identity"),
+              ("team_poss", "team_poss", "log1p"), ("min_rank_on_team", "min_rank_on_team", "log1p"),
+              ("n_team_contributors", "n_team_contributors", "log1p")],
+    "intl_rapm": [("rapm_orapm", "rapm_orapm", "identity"), ("rapm_drapm", "rapm_drapm", "identity"),
+                  ("rapm_off_equiv", "rapm_off_equiv", "log1p"), ("rapm_snapshot_age", "rapm_snapshot_age_days", "log1p")],
+}
+# Static unit fields of the optional blocks.
+BLOCK_STATIC_FIELDS = {
+    "prior_league": [("prior_league_known", "prior_league_known", "identity")],
+    "destination": [("dest_ret_min_share", "dest_ret_min_share", "identity"), ("dest_ret_pts_share", "dest_ret_pts_share", "identity"),
+                    ("dest_ret_reb_share", "dest_ret_reb_share", "identity"), ("dest_ret_starts_share", "dest_ret_starts_share", "identity"),
+                    ("dest_ret_players_log", "dest_ret_players", "log1p"), ("dest_ret_rapm_mean", "dest_ret_rapm_mean", "identity"),
+                    ("dest_ret_orapm_mean", "dest_ret_orapm_mean", "identity"), ("dest_ret_drapm_mean", "dest_ret_drapm_mean", "identity"),
+                    ("dest_ret_rapm_n_log", "dest_ret_rapm_n", "log1p"), ("dest_ret_measurable", "dest_ret_measurable", "identity"),
+                    ("dest_fg3_rate", "dest_fg3_rate", "identity"), ("dest_fta_rate", "dest_fta_rate", "identity"),
+                    ("dest_to_pct", "dest_to_pct", "identity"), ("dest_oreb_pct", "dest_oreb_pct", "identity"),
+                    ("dest_dreb_pct", "dest_dreb_pct", "identity")],
+    "intl_rapm": [("intl_rapm_orapm", "intl_rapm_orapm", "identity"), ("intl_rapm_drapm", "intl_rapm_drapm", "identity"),
+                  ("intl_rapm_poss_log", "intl_rapm_poss", "log1p"), ("intl_rapm_season_gap", "intl_rapm_season_gap", "identity")],
+    "on3": [("recruit_rank_from_on3", "recruit_rank_from_on3", "identity")],
+}
+BLOCK_STATIC_CATEGORICAL = {"prior_league": ["prior_league"]}
+
+
+@dataclass(frozen=True)
+class FeatureSchema:
+    name: str
+    blocks: tuple
+    continuous: tuple            # (name, game column or None, transform), CONTINUOUS first
+    static_continuous: tuple     # (name, unit column, transform), BASE_STATIC_CONTINUOUS first
+    static_categorical: tuple
+
+    @property
+    def field_names(self) -> list[str]:
+        return [n for n, _, _ in self.continuous]
+
+    @property
+    def static_names(self) -> list[str]:
+        return [n for n, _, _ in self.static_continuous]
+
+    def describe(self) -> dict:
+        return {"name": self.name, "blocks": list(self.blocks), "game_fields": len(self.continuous),
+                "static_continuous": len(self.static_continuous), "static_categorical": list(self.static_categorical)}
+
+
+def feature_schema(name: str = "v7", blocks=None) -> FeatureSchema:
+    """``v7`` and ``v8`` are fixed; ``v9`` takes the optional blocks (default: all of ``BLOCKS``), kept in canonical order."""
+    if name in ("v7", "v8"):
+        if blocks:
+            raise ValueError(f"Feature schema {name} takes no blocks")
+        cats = STATIC_CATEGORICAL if name == "v7" else STATIC_CATEGORICAL_V8
+        chosen = ()
+    elif name == "v9":
+        wanted = tuple(BLOCKS) if blocks is None else tuple(blocks)
+        unknown = sorted(set(wanted) - set(BLOCKS))
+        if unknown:
+            raise ValueError(f"Unknown feature blocks {unknown}; known: {BLOCKS}")
+        chosen = tuple(b for b in BLOCKS if b in wanted)
+        cats = STATIC_CATEGORICAL_V8 + [c for b in chosen for c in BLOCK_STATIC_CATEGORICAL.get(b, [])]
+    else:
+        raise ValueError(f"Unknown feature schema {name!r}; known: v7, v8, v9")
+    continuous = tuple(CONTINUOUS) + tuple(f for b in chosen for f in BLOCK_GAME_FIELDS.get(b, []))
+    static = tuple(BASE_STATIC_CONTINUOUS) + tuple(f for b in chosen for f in BLOCK_STATIC_FIELDS.get(b, []))
+    return FeatureSchema(name, chosen, continuous, static, tuple(cats))
+
+
+DEFAULT_SCHEMA = feature_schema("v7")
+
+
+def schema_from_config(config: dict | None, units: pd.DataFrame | None = None) -> FeatureSchema:
+    """The schema a run was trained under: recorded in its config (D-065 runs) or, for earlier runs, implied by the
+    tables the way the code decided then (v8 when the units carry ``recruit_status``, else v7)."""
+    rec = (config or {}).get("feature_schema")
+    if rec:
+        return feature_schema(rec["name"], rec.get("blocks"))
+    return feature_schema("v8" if units is not None and "recruit_status" in units.columns else "v7")
+
+
+def resolve_schema(name: str = "auto", blocks=None, units: pd.DataFrame | None = None) -> FeatureSchema:
+    """CLI resolution: ``auto`` reproduces the pre-D-065 behaviour (v8 iff the tables carry ``recruit_status``)."""
+    if name == "auto":
+        if blocks:
+            raise ValueError("Feature blocks need --feature-schema v9")
+        return schema_from_config(None, units)
+    return feature_schema(name, blocks)
+
+
 def _days(series) -> np.ndarray:
     return (pd.to_datetime(series).values.astype("datetime64[D]") - np.datetime64("1970-01-01", "D")) / DAY
 
@@ -94,15 +201,23 @@ class GameStore:
     record_id: np.ndarray           # [N] object
     vocab: dict                     # categorical -> {value: code}
     index: dict = field(default_factory=dict)   # player_id -> (start, stop) slice into the arrays
+    schema: FeatureSchema = DEFAULT_SCHEMA      # D-065: which continuous fields ``raw`` holds
+    missing_fields: tuple = ()                  # schema fields whose column the tables lack (read as masked)
 
     @classmethod
-    def from_frame(cls, games: pd.DataFrame, dobs: pd.Series | None = None, vocab: dict | None = None) -> "GameStore":
+    def from_frame(cls, games: pd.DataFrame, dobs: pd.Series | None = None, vocab: dict | None = None,
+                   schema: FeatureSchema | None = None) -> "GameStore":
+        schema = schema or DEFAULT_SCHEMA
         g = games.sort_values(["player_id", "date", "record_id"]).reset_index(drop=True)
         n = len(g)
-        raw = np.full((n, len(CONTINUOUS)), np.nan, dtype=np.float32)
+        raw = np.full((n, len(schema.continuous)), np.nan, dtype=np.float32)
         counts = g[list(BOX_FIELDS)].astype("float64")
-        for j, (name, column, kind) in enumerate(CONTINUOUS):
+        missing = []
+        for j, (name, column, kind) in enumerate(schema.continuous):
             if column is not None:
+                if column not in g.columns:
+                    missing.append(name)          # tables built before the block existed: the field stays masked
+                    continue
                 values = pd.to_numeric(g[column], errors="coerce").astype("float64").values
             elif name == "p2":
                 values = np.where(counts["a2"] > 0, counts["k2"] / counts["a2"].where(counts["a2"] > 0), np.nan)
@@ -139,7 +254,7 @@ class GameStore:
         store = cls(raw=raw, cats=cats, player_id=g["player_id"].values.astype(np.int64), date=_days(g["date"]),
                     release=_days(g["release_date"]), season=g["season"].values.astype(np.int32),
                     is_ncaa=(g["source"] == "ncaa").values, minutes=np.nan_to_num(g["minutes"].astype("float32").values),
-                    strength=strength, record_id=g["record_id"].values, vocab=vocab)
+                    strength=strength, record_id=g["record_id"].values, vocab=vocab, schema=schema, missing_fields=tuple(missing))
         starts = np.flatnonzero(np.r_[True, store.player_id[1:] != store.player_id[:-1]])
         stops = np.r_[starts[1:], n]
         store.index = {int(store.player_id[s]): (int(s), int(e)) for s, e in zip(starts, stops)}
@@ -152,7 +267,7 @@ class GameStore:
     def continuous(self, rows: np.ndarray, cutoff_days: float) -> np.ndarray:
         """Raw fields for the rows with cutoff-aware strength substitution; NaN = missing."""
         x = self.raw[rows].copy()
-        col = {name: j for j, name in enumerate(FIELD_NAMES)}
+        col = {name: j for j, name in enumerate(self.schema.field_names)}
         for name in ("opp_adj_o", "opp_adj_d", "opp_adj_pace"):
             values, avail = self.strength[name]
             prior_values, prior_avail = self.strength[name.replace("opp_", "opp_prior_")]
@@ -202,35 +317,33 @@ class Normalizer:
 # Static inputs per unit
 # --------------------------------------------------------------------------- #
 
-def static_continuous(units: pd.DataFrame) -> np.ndarray:
-    """Raw $Z_{it}$ and $C_{jt}^{(c_t)}$ fields in STATIC_CONTINUOUS order; NaN = missing."""
-    out = np.full((len(units), len(STATIC_CONTINUOUS)), np.nan)
-    u = units
-    out[:, 0] = u["age_at_cutoff"].values
-    out[:, 1] = u["ncaa_seasons_completed"].values
-    out[:, 2] = u["first_year"].astype(float).values
-    out[:, 3] = u["height_cm"].values
-    out[:, 4] = u["weight_kg"].values
-    out[:, 5] = np.log1p(u["recruit_national_rank"].values.astype(float))
-    out[:, 6] = u["recruit_composite_score"].values
-    out[:, 7] = u["recruit_star_rating"].values
-    out[:, 8] = u["dest_prior_adj_o"].values
-    out[:, 9] = u["dest_prior_adj_d"].values
-    out[:, 10] = u["dest_prior_adj_pace"].values
-    # The realized schedule length S is a likelihood condition (labeled scenario), never an input:
-    # the encoder sees the destination's prior-season game count, known at the cutoff.
-    out[:, 11] = np.log1p(u["dest_prior_games"].values.astype(float))
+def static_continuous(units: pd.DataFrame, schema: FeatureSchema | None = None) -> np.ndarray:
+    """Raw $Z_{it}$ and $C_{jt}^{(c_t)}$ fields in the schema's static order; NaN = missing.
+
+    The realized schedule length S is a likelihood condition (labeled scenario), never an input: the encoder sees the
+    destination's prior-season game count, known at the cutoff. A unit column the tables lack stays masked."""
+    schema = schema or DEFAULT_SCHEMA
+    out = np.full((len(units), len(schema.static_continuous)), np.nan)
+    for j, (name, column, kind) in enumerate(schema.static_continuous):
+        if column not in units.columns:
+            continue
+        values = pd.to_numeric(units[column], errors="coerce").astype("float64").to_numpy()
+        out[:, j] = _transform(values, kind)
     return out
 
 
-def static_categorical_columns(units: pd.DataFrame) -> list[str]:
-    """The static categoricals of the tables' feature schema: v8 tables carry `recruit_status`, v7 tables do not, so
-    v7 checkpoints keep their four static embeddings and v8 models get five."""
+def static_categorical_columns(units: pd.DataFrame, schema: FeatureSchema | None = None) -> list[str]:
+    """The static categoricals of the run's feature schema. Without an explicit schema (runs before D-065) the tables
+    decide: v8 tables carry `recruit_status`, v7 tables do not, so v7 checkpoints keep their four static embeddings."""
+    if schema is not None:
+        return list(schema.static_categorical)
     return STATIC_CATEGORICAL_V8 if "recruit_status" in units.columns else STATIC_CATEGORICAL
 
 
-def static_vocab(units: pd.DataFrame) -> dict:
-    return {c: {v: i + 1 for i, v in enumerate(sorted(units[c].dropna().astype(str).unique()))} for c in static_categorical_columns(units)}
+def static_vocab(units: pd.DataFrame, schema: FeatureSchema | None = None) -> dict:
+    cols = static_categorical_columns(units, schema)
+    return {c: ({v: i + 1 for i, v in enumerate(sorted(units[c].dropna().astype(str).unique()))} if c in units.columns else {})
+            for c in cols}
 
 
 def player_dobs(tables: dict) -> pd.Series:
@@ -247,7 +360,8 @@ def player_dobs(tables: dict) -> pd.Series:
 def static_codes(units: pd.DataFrame, vocab: dict) -> np.ndarray:
     out = np.zeros((len(units), len(vocab)), dtype=np.int32)
     for j, c in enumerate(vocab):
-        out[:, j] = units[c].astype(str).map(vocab[c]).fillna(0).astype(np.int32).values
+        if c in units.columns:
+            out[:, j] = units[c].astype(str).map(vocab[c]).fillna(0).astype(np.int32).values
     return out
 
 
@@ -300,8 +414,9 @@ class Channel:
 def build_channel(store: GameStore, rows: np.ndarray, *, cutoff_days: float, target_days: float,
                   normalizer: Normalizer) -> Channel:
     """Encode one game channel; rows are already chronological (store order)."""
+    names = store.schema.field_names
     if len(rows) == 0:
-        return Channel.empty(len(FIELD_NAMES))
+        return Channel.empty(len(names))
     truncated = len(rows) > MAX_GAMES
     if truncated:
         rows = rows[-MAX_GAMES:]
@@ -317,7 +432,7 @@ def build_channel(store: GameStore, rows: np.ndarray, *, cutoff_days: float, tar
     clocks = np.stack([tau, np.sign(tau) * np.log1p(np.abs(tau)), np.log1p(recency),
                        np.log1p(np.nan_to_num(gaps)), boundary.astype(float), np.r_[1.0, np.zeros(len(rows) - 1)]], axis=1)
     minutes = store.minutes[rows]
-    col = {name: j for j, name in enumerate(FIELD_NAMES)}
+    col = {name: j for j, name in enumerate(names)}
     span = (dates.max() - dates.min()) / YEAR_DAYS
     evidence = np.array([
         np.log1p(len(rows)), np.log1p(float(minutes.sum())), float(np.nan_to_num(raw[:, col["coverage"]]).mean()),
@@ -379,7 +494,8 @@ def _pad_channel(channels: list[Channel]):
     B = len(channels)
     T = max((len(c.weight) for c in channels), default=0)
     T = max(T, 1)
-    F, C, K = len(FIELD_NAMES), len(CATEGORICAL), len(CLOCK_NAMES)
+    F = max((c.x.shape[1] for c in channels), default=len(FIELD_NAMES))   # the channels' schema width (D-065)
+    C, K = len(CATEGORICAL), len(CLOCK_NAMES)
     x = torch.zeros(B, T, F); m = torch.zeros(B, T, F, dtype=torch.bool); cats = torch.zeros(B, T, C, dtype=torch.long)
     clocks = torch.zeros(B, T, K); w = torch.zeros(B, T); rec = torch.zeros(B, T); valid = torch.zeros(B, T, dtype=torch.bool)
     season = torch.zeros(B, T, dtype=torch.long); order = torch.zeros(B, T, dtype=torch.long)

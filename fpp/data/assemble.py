@@ -45,7 +45,7 @@ import pandas as pd
 
 from .calendar import forecast_cutoff
 from .records import BOX_FIELDS, OutcomeUnit
-from .stores import Stores
+from .stores import STARTER_SOURCE, Stores
 
 SOURCES = ("ncaa", "intl", "national", "events")
 STRENGTH = ["adj_o", "adj_d", "adj_pace"]
@@ -59,6 +59,12 @@ RANK_LIMIT = 1500             # recruiting ranks above this are parser leakage u
 USA_TEAM_CODES = ("United-States",)
 FIBA_COUNTS = {"orb": "OREB", "drb": "DREB", "ast": "AST", "stl": "STL", "blk": "BLK", "tov": "TOV", "pf": "PF"}
 MAPPING_VERSION = "season-map-v2/cluster-majority-v1"
+# D-065 blocks on game rows (tables v11): the team's box totals, the player's usage and role within the team, and the
+# latest pre-game rolling international RAPM snapshot. Sources without a value carry NaN (masked on the feature side).
+TEAM_TOTAL_COLUMNS = ["team_fga", "team_fta", "team_tov", "team_ast", "team_reb", "team_poss"]
+TEAM_TOTAL_RENAMES = {"FGA": "team_fga", "FTA": "team_fta", "TOV": "team_tov", "AST": "team_ast", "REB": "team_reb", "POSS": "team_poss"}
+ROLE_COLUMNS = ["usage_game", "pts_share", "fga_share", "ast_share", "reb_share", "tov_share", "min_rank_on_team", "n_team_contributors"]
+RAPM_GAME_COLUMNS = ["rapm_orapm", "rapm_drapm", "rapm_off_equiv", "rapm_snapshot_age_days"]
 GAME_COLUMNS = [
     "record_id", "source", "player_id", "game_id", "date", "release_date", "season", "season_method",
     "original_label", "provider_season_id", "label_agrees_with_bucket", "mapping_version",
@@ -74,6 +80,7 @@ GAME_COLUMNS = [
     "opp_record_winpct", "opp_record_margin",
     # Rating uncertainty (D-039, tables_v8): same availability dates as the ratings they belong to.
     "opp_adj_o_sd", "opp_adj_d_sd", "opp_prior_adj_o_sd", "opp_prior_adj_d_sd", "team_adj_o_sd", "team_adj_d_sd",
+    *TEAM_TOTAL_COLUMNS, *ROLE_COLUMNS, *RAPM_GAME_COLUMNS,                       # D-065 (tables v11)
 ]
 STRENGTH_SD = ["adj_o_sd", "adj_d_sd"]
 
@@ -323,7 +330,7 @@ def build_intl_games(stores: Stores, *, lag_days: int, gap_days: int):
     # upstream for NCAA-linked players (D-053).
     own = player["Starter"].map({1: True, 0: False, 1.0: True, 0.0: False}).astype("boolean") if "Starter" in player else pd.Series(pd.NA, index=player.index, dtype="boolean")
     player["starter"] = own.where(own.notna(), player["status"].map({"Starter": True, "Bench": False}).astype("boolean"))
-    team = team.rename(columns={"PTS": "team_pts", "Minutes": "team_minutes"}).drop(columns=["Date", "Home", "POSS"])
+    team = team.rename(columns={"PTS": "team_pts", "Minutes": "team_minutes", **TEAM_TOTAL_RENAMES}).drop(columns=["Date", "Home"])
     frame = player.merge(team.drop(columns=["Season"]), on=["GameID", "TeamID", "LeagueID"], how="left")
     frame = frame.merge(leagues[["LeagueID", "Slug", "Kind", "Country"]], on="LeagueID", how="left")
     slug, kind = frame["Slug"].fillna(""), frame["Kind"].fillna("")
@@ -341,8 +348,13 @@ def build_intl_games(stores: Stores, *, lag_days: int, gap_days: int):
     })
     for col in [c for c in GAME_COLUMNS if c.startswith(("opp_adj", "opp_prior", "opp_strength", "opp_hist", "team_adj", "team_strength", "team_hist"))]:
         out[col] = frame[col]
-    out = pd.concat([out, fiba_counts(frame)], axis=1)
-    return _finish(out, lag_days), periods
+    out = pd.concat([out, fiba_counts(frame), _team_totals(frame)], axis=1)
+    out = attach_rolling_rapm(attach_role_fields(out), stores.intl_rapm_rolling())      # D-065 usage and RAPM blocks
+    games = _finish(out, lag_days)
+    # Where each starter flag came from (D-063), for the build audit: page value, listing order, or none.
+    games.attrs["starter_source"] = (frame["starter_source"].map(STARTER_SOURCE).value_counts().to_dict()
+                                     if "starter_source" in frame else {})
+    return games, periods
 
 
 def _attach_intl_strength(team, ratings, bucket_end, lag_days):
@@ -433,7 +445,7 @@ def build_tournament_games(stores: Stores, store: str, *, lag_days: int):
     team = team.merge(record.rename(columns={"TeamID": "opp_id"}), on=key + ["opp_id"], how="left")
     team["opp_strength_available"] = team["end"] + pd.Timedelta(days=lag_days)
     team["opp_strength_source"] = np.where(team["opp_record_winpct"].notna(), f"{store}_edition_record", "none")
-    team = team.rename(columns={"PTS": "team_pts", "Minutes": "team_minutes"}).drop(columns=["Date", "Home", "TeamCode", "end", "win", "margin"])
+    team = team.rename(columns={"PTS": "team_pts", "Minutes": "team_minutes", **TEAM_TOTAL_RENAMES}).drop(columns=["Date", "Home", "TeamCode", "end", "win", "margin"])
     player = stores.tournament_player_games(store)
     frame = player.merge(team, on=["GameID", "TeamID"] + key, how="left")
     slug = frame["TournamentSlug"].fillna("")
@@ -454,7 +466,8 @@ def build_tournament_games(stores: Stores, store: str, *, lag_days: int):
         "opp_record_winpct": frame["opp_record_winpct"], "opp_record_margin": frame["opp_record_margin"],
         "opp_strength_available": frame["opp_strength_available"], "opp_strength_source": frame["opp_strength_source"],
     })
-    out = pd.concat([out, fiba_counts(frame)], axis=1)
+    out = pd.concat([out, fiba_counts(frame), _team_totals(frame)], axis=1)
+    out = attach_role_fields(out)                                                    # D-065 usage block
     periods = periods.rename(columns={"TournamentSlug": "competition"})[["source", "competition_id", "competition", "season", "start", "end"]]
     return _finish(out, lag_days), periods
 
@@ -467,6 +480,8 @@ def build_ncaa_games(stores: Stores, *, lag_days: int):
     logs = stores.ncaa_gamelogs()
     logs["date"] = pd.to_datetime(logs["date"])
     team = stores.ncaa_team_games()
+    # Team box totals keep their own names so they never collide with the player lines' columns (D-065 usage block).
+    team = team.rename(columns={"fga": "team_fga", "fta": "team_fta", "tov": "team_tov", "ast": "team_ast", "reb": "team_reb", "poss": "team_poss"})
     # Team minutes summed from the player lines certify each team-game (C7/C10).
     sums = logs.groupby(["game_id", "team_id"]).agg(team_minutes=("minutes", "sum"), lines_pts=("pts", "sum")).reset_index()
     team = team.merge(sums, on=["game_id", "team_id"], how="outer")
@@ -505,7 +520,7 @@ def build_ncaa_games(stores: Stores, *, lag_days: int):
     ratings = ratings.merge(season_end, left_on="season", right_index=True, how="left")
     ratings["available"] = ratings["season_end"] + pd.Timedelta(days=lag_days)
     ratings = ratings[["team_id", "season", "available", *STRENGTH]]
-    frame = logs.drop(columns=["game_type"]).merge(team.drop(columns=["season", "poss", "lines_pts", "minutes", "overtime_agrees"]), on=["game_id", "team_id"], how="left")
+    frame = logs.drop(columns=["game_type"]).merge(team.drop(columns=["season", "lines_pts", "minutes", "overtime_agrees"]), on=["game_id", "team_id"], how="left")
     frame["opp_id"] = frame["opp_id"].where(frame["opp_id"].notna(), frame["opp_from_boxscore"])
     opp = ratings.rename(columns={"team_id": "opp_id", "available": "opp_strength_available", **{s: f"opp_{s}" for s in STRENGTH}})
     frame = frame.merge(opp, on=["opp_id", "season"], how="left")
@@ -533,9 +548,267 @@ def build_ncaa_games(stores: Stores, *, lag_days: int):
     })
     for col in [c for c in frame.columns if c.startswith(("opp_adj", "opp_prior", "opp_strength", "team_adj", "team_strength"))]:
         out[col] = frame[col]
+    out = attach_role_fields(pd.concat([out, _team_totals(frame)], axis=1))          # D-065 usage block
     periods = logs.groupby("season")["date"].agg(start="min", end="max").reset_index()
     periods["source"], periods["competition_id"], periods["competition"] = "ncaa", 0, "NCAA-D1"
     return _finish(out, lag_days), periods, team
+
+
+# --------------------------------------------------------------------------- #
+# D-065 blocks: usage and role within the team, rolling international RAPM (game rows);
+# prior league, destination context, international RAPM anchor, On3 fill (units)
+# --------------------------------------------------------------------------- #
+
+def _team_totals(frame: pd.DataFrame) -> pd.DataFrame:
+    """The player's team's box totals in that game; NaN where the team line lacks them."""
+    return pd.DataFrame({c: (pd.to_numeric(frame[c], errors="coerce") if c in frame else np.nan) for c in TEAM_TOTAL_COLUMNS},
+                        index=frame.index)
+
+
+def attach_role_fields(games: pd.DataFrame) -> pd.DataFrame:
+    """Per-game usage rate and role within the team (v8 plan item 14) from the team totals and the teammates' lines.
+
+    usage = 100 (FGA + 0.44 FTA + TOV)(team minutes / 5) / (minutes (team FGA + 0.44 team FTA + team TOV));
+    shares are the player's fraction of the team's points, field-goal attempts, assists, rebounds and turnovers;
+    ``min_rank_on_team`` ranks the player's minutes among the team's lines of that game (1 = most) and
+    ``n_team_contributors`` counts lines with minutes. Impossible values (a share above one) are clipped."""
+    g = games
+    num = lambda c: (pd.to_numeric(g[c], errors="coerce").astype("float64") if c in g else pd.Series(np.nan, index=g.index))  # noqa: E731
+    fga, fta, tov, ast, reb = num("a2") + num("a3"), num("af"), num("tov"), num("ast"), num("orb") + num("drb")
+    minutes, team_minutes = num("minutes"), num("team_minutes")
+    poss_used = fga + 0.44 * fta + tov
+    team_used = num("team_fga") + 0.44 * num("team_fta") + num("team_tov")
+    ok = (minutes > 0) & (team_used > 0) & (team_minutes > 0)
+    usage = (100.0 * poss_used * (team_minutes / 5.0) / (minutes * team_used)).clip(lower=0.0, upper=100.0)
+    g["usage_game"] = usage.where(ok)
+
+    def share(numerator, denominator):
+        return (numerator / denominator.where(denominator > 0)).clip(lower=0.0, upper=1.0)
+
+    g["pts_share"] = share(num("pts"), num("team_pts"))
+    g["fga_share"] = share(fga, num("team_fga"))
+    g["ast_share"] = share(ast, num("team_ast"))
+    g["reb_share"] = share(reb, num("team_reb"))
+    g["tov_share"] = share(tov, num("team_tov"))
+    keys = [g[k] for k in ("game_id", "team_id")]
+    played = minutes.where(minutes > 0)
+    g["min_rank_on_team"] = played.groupby(keys).rank(ascending=False, method="min")
+    g["n_team_contributors"] = (minutes > 0).astype("float64").groupby(keys).transform("sum")
+    return g
+
+
+def attach_rolling_rapm(games: pd.DataFrame, rolling: pd.DataFrame | None) -> pd.DataFrame:
+    """The latest rolling international RAPM snapshot dated strictly before each game, per (player, upstream
+    season label, league) (v8 plan item 3); games without one carry NaN."""
+    for c in RAPM_GAME_COLUMNS:
+        games[c] = np.nan
+    if rolling is None or len(rolling) == 0 or len(games) == 0:
+        return games
+    r = rolling.rename(columns={"season": "original_label", "league_id": "competition_id"}).copy()
+    r["cutoff_date"] = pd.to_datetime(r["cutoff_date"], errors="coerce")
+    r = r.dropna(subset=["cutoff_date", "player_id", "original_label", "competition_id"])
+    r = r.astype({"player_id": "int64", "original_label": "int64", "competition_id": "int64"})
+    left = pd.DataFrame({"row": np.arange(len(games)), "player_id": pd.to_numeric(games["player_id"], errors="coerce"),
+                         "original_label": pd.to_numeric(games["original_label"], errors="coerce"),
+                         "competition_id": pd.to_numeric(games["competition_id"], errors="coerce"),
+                         "date": pd.to_datetime(games["date"], errors="coerce")})
+    left = left.dropna().astype({"player_id": "int64", "original_label": "int64", "competition_id": "int64"})
+    if left.empty:
+        return games
+    merged = pd.merge_asof(left.sort_values("date"), r.sort_values("cutoff_date")[["player_id", "original_label", "competition_id", "cutoff_date", "orapm", "drapm", "off_equiv"]],
+                           left_on="date", right_on="cutoff_date", by=["player_id", "original_label", "competition_id"],
+                           allow_exact_matches=False, direction="backward")
+    hit = merged["cutoff_date"].notna()
+    rows = merged.loc[hit, "row"].to_numpy()
+    games.iloc[rows, games.columns.get_loc("rapm_orapm")] = merged.loc[hit, "orapm"].to_numpy()
+    games.iloc[rows, games.columns.get_loc("rapm_drapm")] = merged.loc[hit, "drapm"].to_numpy()
+    games.iloc[rows, games.columns.get_loc("rapm_off_equiv")] = merged.loc[hit, "off_equiv"].to_numpy()
+    games.iloc[rows, games.columns.get_loc("rapm_snapshot_age_days")] = (merged.loc[hit, "date"] - merged.loc[hit, "cutoff_date"]).dt.days.to_numpy().astype(float)
+    return games
+
+
+# ``national_team_only`` added upstream on 2026-09-30: no club, youth, school or D1 origin, national-team games before t.
+PRIOR_LEAGUE_LEVELS = ("ncaa_d1", "hs_or_none", "juco_naia_other", "ncaa_d2", "ncaa_d3", "intl", "national_team_only")
+# Units without an upstream row (e.g. the deployment season's freshmen) take the roster role's reading; ``unknown``
+# upstream (a scrape gap) is pooled with ``hs_or_none`` and told apart by the known flag.
+PRIOR_LEAGUE_BY_ROLE = {"freshman": ("hs_or_none", 0), "transfer_d1": ("ncaa_d1", 1), "returning": ("ncaa_d1", 1),
+                        "transfer_nond1": ("hs_or_none", 0)}
+
+
+def prior_league_table(stores: Stores) -> pd.DataFrame | None:
+    t = stores.player_prior_league()
+    if t is None:
+        return None
+    t = t.copy()
+    t["prior_league"] = t["prior_league"].fillna("unknown").replace({"unknown": "hs_or_none"})
+    t.loc[~t["prior_league"].isin(PRIOR_LEAGUE_LEVELS), "prior_league"] = "hs_or_none"
+    t["prior_league_known"] = pd.to_numeric(t["prior_league_known"], errors="coerce").fillna(0).astype(int)
+    return t.drop_duplicates(["player_id", "season"])[["player_id", "season", "prior_league", "prior_league_known"]].reset_index(drop=True)
+
+
+DEST_STYLE = ["fg3_rate", "fta_rate", "to_pct", "oreb_pct", "dreb_pct"]
+
+
+def destination_context(stores: Stores, seasons: tuple[int, int]) -> pd.DataFrame:
+    """Per (team, season): what returns from the prior season, as known at the preseason cutoff (v8 plan item 11).
+
+    Returning players are those on the season's roster with a provider season line on the same team the season
+    before; their shares of that team's prior-season minutes, points, rebounds and starts, their minutes-weighted
+    prior-season NCAA RAPM, and the team's prior-season style. ``dest_ret_measurable`` is 0 when the team has no
+    prior-season lines (a new programme), where every share is NaN. The roster is the undated final roster: a
+    departure after the cutoff still counts as returning (known caution)."""
+    rosters = stores.rosters()[["team_id", "season", "player_id"]].drop_duplicates()
+    rosters = rosters[(rosters["season"] >= seasons[0]) & (rosters["season"] <= seasons[1] + 1)]
+    summ = stores.ncaa_summaries().copy()
+    for c in ("minutes", "pts", "trb", "gs"):
+        summ[c] = pd.to_numeric(summ[c], errors="coerce").fillna(0.0)
+    totals = summ.groupby(["team_id", "season"]).agg(total_min=("minutes", "sum"), total_pts=("pts", "sum"),
+                                                    total_reb=("trb", "sum"), total_starts=("gs", "sum")).reset_index()
+    totals["season"] = totals["season"] + 1
+    prev = summ.rename(columns={"season": "prev_season"})
+    prev["season"] = prev["prev_season"] + 1
+    ret = rosters.merge(prev[["player_id", "prev_season", "season", "team_id", "minutes", "pts", "trb", "gs"]],
+                        on=["player_id", "season", "team_id"], how="inner")
+    rapm = stores.player_rapm()
+    if rapm is not None:
+        rapm = rapm.rename(columns={"season": "prev_season"}).drop_duplicates(["player_id", "prev_season"])
+        ret = ret.merge(rapm[["player_id", "prev_season", "orapm", "drapm", "rapm"]], on=["player_id", "prev_season"], how="left")
+    else:
+        ret["orapm"] = ret["drapm"] = ret["rapm"] = np.nan
+    has = ret["rapm"].notna()
+    w = ret["minutes"].where(has, 0.0)
+    ret["w"], ret["has_rapm"] = w, has.astype(int)
+    for c in ("rapm", "orapm", "drapm"):
+        ret[f"w_{c}"] = w * ret[c].fillna(0.0)
+    agg = ret.groupby(["team_id", "season"]).agg(
+        ret_min=("minutes", "sum"), ret_pts=("pts", "sum"), ret_reb=("trb", "sum"), ret_starts=("gs", "sum"),
+        dest_ret_players=("player_id", "size"), dest_ret_rapm_n=("has_rapm", "sum"), w=("w", "sum"),
+        w_rapm=("w_rapm", "sum"), w_orapm=("w_orapm", "sum"), w_drapm=("w_drapm", "sum")).reset_index()
+    teams = rosters[["team_id", "season"]].drop_duplicates().merge(totals, on=["team_id", "season"], how="left")
+    teams = teams.merge(agg, on=["team_id", "season"], how="left")
+    for c in ("ret_min", "ret_pts", "ret_reb", "ret_starts", "dest_ret_players", "dest_ret_rapm_n", "w", "w_rapm", "w_orapm", "w_drapm"):
+        teams[c] = teams[c].fillna(0.0)
+    measurable = teams["total_min"].fillna(0.0) > 0
+
+    def share(numerator, denominator):
+        return (numerator / denominator.where(denominator > 0)).clip(lower=0.0, upper=1.0).where(measurable)
+
+    weighted = lambda c: (teams[f"w_{c}"] / teams["w"].where(teams["w"] > 0)).where(measurable)  # noqa: E731
+    out = pd.DataFrame({
+        "team_id": teams["team_id"].astype("int64"), "season": teams["season"].astype("int64"),
+        "dest_ret_min_share": share(teams["ret_min"], teams["total_min"]), "dest_ret_pts_share": share(teams["ret_pts"], teams["total_pts"]),
+        "dest_ret_reb_share": share(teams["ret_reb"], teams["total_reb"]), "dest_ret_starts_share": share(teams["ret_starts"], teams["total_starts"]),
+        "dest_ret_players": teams["dest_ret_players"].where(measurable), "dest_ret_rapm_mean": weighted("rapm"),
+        "dest_ret_orapm_mean": weighted("orapm"), "dest_ret_drapm_mean": weighted("drapm"),
+        "dest_ret_rapm_n": teams["dest_ret_rapm_n"].where(measurable), "dest_ret_measurable": measurable.astype(float),
+    })
+    style = stores.team_seasons()[["team_id", "season", *DEST_STYLE]].copy()
+    style["season"] = style["season"] + 1
+    style = style.rename(columns={c: f"dest_{c}" for c in DEST_STYLE}).drop_duplicates(["team_id", "season"])
+    out = out.merge(style, on=["team_id", "season"], how="left")
+    return out.sort_values(["season", "team_id"]).reset_index(drop=True)
+
+
+def intl_rapm_anchor_table(stores: Stores) -> pd.DataFrame | None:
+    t = stores.player_rapm_intl()
+    if t is None:
+        return None
+    t = t.copy()
+    for c in ("orapm", "drapm", "rapm", "n_poss", "n_leagues"):
+        t[c] = pd.to_numeric(t[c], errors="coerce")
+    return t.dropna(subset=["season"]).drop_duplicates(["player_id", "season"]).sort_values(["player_id", "season"]).reset_index(drop=True)
+
+
+def on3_table(stores: Stores) -> pd.DataFrame | None:
+    t = stores.on3_rankings()
+    if t is None:
+        return None
+    t = t.copy()
+    for c in t.columns:
+        if c != "player_id":
+            t[c] = pd.to_numeric(t[c], errors="coerce")
+    out = pd.DataFrame({"player_id": t["player_id"].astype("int64"), "class_year": t["class_year"],
+                        "on3_rank": t["consensus_national_rank"].where(t["consensus_national_rank"].notna(), t["on3_national_rank"]),
+                        "on3_stars": t["consensus_stars"].where(t["consensus_stars"].notna(), t["on3_stars"]),
+                        "on3_rating": t["consensus_rating"].where(t["consensus_rating"].notna(), t["on3_rating"])})
+    return out.dropna(subset=["class_year"]).drop_duplicates(["player_id", "class_year"], keep="last").reset_index(drop=True)
+
+
+def _latest_rows(units, table, *, on, time_col, limit, columns, prefix):
+    """Attach the latest row of ``table`` per key whose ``time_col`` ≤ the unit's limit, columns renamed with ``prefix``."""
+    table = table.sort_values([on, time_col])
+    grouped = {k: g for k, g in table.groupby(on)}
+    rows = []
+    for key, lim in zip(units[on], limit):
+        g = grouped.get(key)
+        if g is not None:
+            g = g[g[time_col] <= lim]
+        rows.append(list(g.iloc[-1][columns]) if g is not None and len(g) else [np.nan] * len(columns))
+    names = [f"{prefix}{c}" for c in columns]
+    return pd.concat([units, pd.DataFrame(rows, columns=names, index=units.index)], axis=1)
+
+
+def attach_unit_blocks(units: pd.DataFrame, aux: dict) -> pd.DataFrame:
+    """The D-065 unit-level blocks from the auxiliary tables (``player_prior_league``, ``destination_context``,
+    ``intl_rapm_anchor``, ``on3_rankings``). A missing table leaves its block's columns absent, which the feature
+    side reads as masked. Used by the assembler and by the deployment forecast on the same rule."""
+    units = units.copy()
+    pl = aux.get("player_prior_league")
+    if pl is not None:
+        units = units.merge(pl[["player_id", "season", "prior_league", "prior_league_known"]], on=["player_id", "season"], how="left")
+        units["prior_league"] = units["prior_league"].astype(object)
+        units["prior_league_known"] = pd.to_numeric(units["prior_league_known"], errors="coerce")
+        missing = units["prior_league"].isna().to_numpy()
+        if missing.any():
+            roles = units.loc[missing, "role"].astype(object).tolist()
+            fallback = [PRIOR_LEAGUE_BY_ROLE.get(r, (None, 0)) for r in roles]
+            units.loc[missing, "prior_league"] = pd.Series([f[0] for f in fallback], index=units.index[missing], dtype=object)
+            units.loc[missing, "prior_league_known"] = pd.Series([float(f[1]) for f in fallback], index=units.index[missing])
+        units["prior_league_known"] = units["prior_league_known"].fillna(0).astype(int)
+    dc = aux.get("destination_context")
+    if dc is not None:
+        units = units.merge(dc, on=["team_id", "season"], how="left")
+        units["dest_ret_measurable"] = units["dest_ret_measurable"].fillna(0.0)
+    anchors = aux.get("intl_rapm_anchor")
+    if anchors is not None:
+        units = _latest_rows(units, anchors, on="player_id", time_col="season", limit=units["season"] - 1,
+                             columns=["orapm", "drapm", "n_poss", "season"], prefix="intl_rapm_")
+        units["intl_rapm_poss"] = units.pop("intl_rapm_n_poss")
+        units["intl_rapm_season_gap"] = units["season"] - units.pop("intl_rapm_season")
+    on3 = aux.get("on3_rankings")
+    if on3 is not None:
+        units = _latest_rows(units, on3, on="player_id", time_col="class_year", limit=units["season"] - 1,
+                             columns=["on3_rank", "on3_stars", "on3_rating"], prefix="")
+        fill = units["recruit_national_rank"].isna() & units["on3_rank"].notna()
+        units["recruit_rank_from_on3"] = fill.astype(float)
+        units.loc[fill, "recruit_national_rank"] = units.loc[fill, "on3_rank"]
+        stars = units["recruit_star_rating"].isna() & units["on3_stars"].notna()
+        units.loc[stars, "recruit_star_rating"] = units.loc[stars, "on3_stars"]
+    return units
+
+
+def block_coverage(units: pd.DataFrame, games: pd.DataFrame) -> dict:
+    """Build audit for the D-065 blocks: coverage on eligible first-season units, on international entrants, and on game rows."""
+    fy = units["likelihood_eligible"] & units["first_year"]
+    ie = fy & units["intl_entrant"]
+
+    def share(mask, col):
+        return float(units.loc[mask, col].notna().mean()) if col in units and mask.any() else None
+
+    out = {col: {"first_year": share(fy, col), "intl_entrants": share(ie, col)}
+           for col in ("prior_league", "dest_ret_min_share", "dest_fg3_rate", "intl_rapm_orapm")}
+    if "prior_league_known" in units:
+        out["prior_league_known_share"] = {"first_year": float(units.loc[fy, "prior_league_known"].mean()) if fy.any() else None,
+                                           "intl_entrants": float(units.loc[ie, "prior_league_known"].mean()) if ie.any() else None}
+        out["prior_league_levels_first_year"] = units.loc[fy, "prior_league"].value_counts().to_dict()
+    if "recruit_rank_from_on3" in units:
+        out["on3_rank_filled_first_year_units"] = int(units.loc[fy, "recruit_rank_from_on3"].sum())
+    if "usage_game" in games:
+        out["usage_game_share_by_source"] = games.groupby("source")["usage_game"].apply(lambda s: float(s.notna().mean())).to_dict()
+    if "rapm_orapm" in games:
+        intl = games["source"] == "intl"
+        out["rolling_rapm_share_intl_rows"] = float(games.loc[intl, "rapm_orapm"].notna().mean()) if intl.any() else None
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -543,9 +816,9 @@ def build_ncaa_games(stores: Stores, *, lag_days: int):
 # --------------------------------------------------------------------------- #
 
 def build_units(stores: Stores, ncaa_games: pd.DataFrame, team_games: pd.DataFrame, games: pd.DataFrame,
-                *, lag_days: int, seasons: tuple[int, int]) -> pd.DataFrame:
-    rosters = stores.rosters()
-    rosters = rosters[(rosters["season"] >= seasons[0]) & (rosters["season"] <= seasons[1])].copy()
+                *, lag_days: int, seasons: tuple[int, int], aux: dict | None = None) -> pd.DataFrame:
+    all_rosters = stores.rosters()          # every upstream roster season (1997 on): career history (D-066)
+    rosters = all_rosters[(all_rosters["season"] >= seasons[0]) & (all_rosters["season"] <= seasons[1])].copy()
     rosters["unit_id"] = (rosters["player_id"].astype(str) + ":" + rosters["season"].astype(str)
                           + ":" + rosters["team_id"].astype(str))
     # Player lines on the roster team; lines without a team go to a unique roster team.
@@ -604,10 +877,7 @@ def build_units(stores: Stores, ncaa_games: pd.DataFrame, team_games: pd.DataFra
     units["exclusion_reasons"], units["likelihood_eligible"], units["evidence"] = _gate(units)
     # Roster history and attributes as of the forecast cutoff.
     units["forecast_cutoff"] = pd.to_datetime([forecast_cutoff(int(s)) for s in units["season"]])
-    first = rosters.groupby("player_id")["season"].min().rename("first_season")
-    units = units.merge(first, left_on="player_id", right_index=True, how="left")
-    units["first_year"] = units["season"] == units["first_season"]
-    units["ncaa_seasons_completed"] = _prior_seasons(rosters[["player_id", "season"]].drop_duplicates(), units)
+    units = career_history(all_rosters, units)
     players = stores.players()
     players["dob"] = pd.to_datetime(players["dob"], errors="coerce")
     units = units.merge(players.drop(columns=["name"]), on="player_id", how="left")
@@ -630,6 +900,7 @@ def build_units(stores: Stores, ncaa_games: pd.DataFrame, team_games: pd.DataFra
     units["intl_entrant"] = units["first_year"] & ((units["n_intl_games"] > 0) | (units["n_national_nonusa_games"] > 0))
     units["any_pre_ncaa"] = units["first_year"] & ((units["n_intl_games"] + units["n_national_games"] + units["n_event_games"]) > 0)
     units["intl_history"] = (units["n_intl_games"] > 0) | (units["n_national_nonusa_games"] > 0)
+    units = attach_unit_blocks(units, aux or {})          # D-065: the On3 fill precedes the recruiting status
     units["recruit_status"] = recruit_status(units)
     return units
 
@@ -733,6 +1004,20 @@ def _gate(units: pd.DataFrame):
     return reasons, eligible, evidence
 
 
+def career_history(all_rosters: pd.DataFrame, units: pd.DataFrame) -> pd.DataFrame:
+    """First D1 roster season, first-season flag and seasons completed per unit, from every upstream roster season.
+
+    Before D-066 these were computed from the tables' season range only (2003 on), so every 2003 unit was a "first
+    season" (2,633 eligible returners among them) and seasons completed were undercounted through 2006. Roster rows
+    after the tables' range (e.g. next season's roster) cannot change either quantity for earlier units."""
+    history = all_rosters[["player_id", "season"]].drop_duplicates()
+    first = history.groupby("player_id")["season"].min().rename("first_season")
+    out = units.drop(columns=[c for c in ("first_season",) if c in units]).merge(first, left_on="player_id", right_index=True, how="left")
+    out["first_year"] = out["season"] == out["first_season"]
+    out["ncaa_seasons_completed"] = _prior_seasons(history, out)
+    return out
+
+
 def _prior_seasons(prior: pd.DataFrame, units: pd.DataFrame) -> list[int]:
     prior = prior.sort_values(["player_id", "season"])
     grouped = {p: g["season"].values for p, g in prior.groupby("player_id")}
@@ -740,17 +1025,8 @@ def _prior_seasons(prior: pd.DataFrame, units: pd.DataFrame) -> list[int]:
 
 
 def _latest_before(units, table, *, on, time_col, limit, columns):
-    """Attach the latest row of ``table`` per key whose ``time_col`` ≤ the unit's limit."""
-    table = table.sort_values([on, time_col])
-    grouped = {k: g for k, g in table.groupby(on)}
-    rows = []
-    for key, lim in zip(units[on], limit):
-        g = grouped.get(key)
-        if g is not None:
-            g = g[g[time_col] <= lim]
-        rows.append(list(g.iloc[-1][columns]) if g is not None and len(g) else [np.nan] * len(columns))
-    names = [f"recruit_{c}" for c in columns]
-    return pd.concat([units, pd.DataFrame(rows, columns=names, index=units.index)], axis=1)
+    """Attach the latest row of ``table`` per key whose ``time_col`` ≤ the unit's limit, as ``recruit_*`` columns."""
+    return _latest_rows(units, table, on=on, time_col=time_col, limit=limit, columns=columns, prefix="recruit_")
 
 
 def _evidence_profile(units: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
@@ -866,7 +1142,12 @@ def build_tables(stores: Stores, *, seasons=(2003, 2026), lag_days: int = 1, gap
     games = games.merge(flags, on=["source", "competition_id", "season"], how="left")
     games["season_guard"] = games["season_guard"].fillna("")
     games["season_verified"] = games["source"] != "intl"          # NCAA labels and dated editions; inferred periods are not
-    units = build_units(stores, ncaa, team_games, games, lag_days=lag_days, seasons=seasons)
+    # D-065 auxiliary tables (written alongside the tables so the deployment forecast attaches the same blocks).
+    aux = {name: table for name, table in (("player_prior_league", prior_league_table(stores)),
+                                           ("destination_context", destination_context(stores, seasons)),
+                                           ("intl_rapm_anchor", intl_rapm_anchor_table(stores)),
+                                           ("on3_rankings", on3_table(stores))) if table is not None}
+    units = build_units(stores, ncaa, team_games, games, lag_days=lag_days, seasons=seasons, aux=aux)
     relabelled = games[(games["source"] == "intl") & (games["label_agrees_with_bucket"] == False)]  # noqa: E712
     ambiguous = intl_periods[intl_periods["majority_share"] < 0.9] if "majority_share" in intl_periods else intl_periods.iloc[0:0]
     guarded = intl_periods[intl_periods["guard"] != ""] if "guard" in intl_periods else intl_periods.iloc[0:0]
@@ -892,6 +1173,7 @@ def build_tables(stores: Stores, *, seasons=(2003, 2026), lag_days: int = 1, gap
         "counts_invalid": int((~games["counts_valid"]).sum()),
         "overtime_certified_share_by_source": games.groupby("source")["overtime_certified"].mean().round(4).to_dict(),
         "ncaa_overtime_source": team_games["overtime_source"].value_counts().to_dict() if "overtime_source" in team_games else {},
+        "intl_starter_source": intl.attrs.get("starter_source", {}),
         "ncaa_overtime_provider_vs_sum_agreement": (float(team_games["overtime_agrees"].dropna().astype(float).mean())
                                                     if "overtime_agrees" in team_games and team_games["overtime_agrees"].notna().any() else None),
         "ncaa_team_games_points_inconsistent": int((~ncaa.drop_duplicates(["game_id", "team_id"])["points_consistent"].fillna(True).astype(bool)).sum()),
@@ -910,4 +1192,5 @@ def build_tables(stores: Stores, *, seasons=(2003, 2026), lag_days: int = 1, gap
     nonncaa = games["source"] != "ncaa"
     audit["nonncaa_game_rows_with_dob_share"] = float(games.loc[nonncaa, "player_id"].isin(players_table.loc[players_table["dob"].notna(), "player_id"]).mean())
     audit["recruit_status"] = units.loc[units["likelihood_eligible"] & units["first_year"], "recruit_status"].value_counts().to_dict()
-    return {"games": games, "competition_periods": periods, "units": units, "players": players_table, "audit": audit}
+    audit["feature_blocks"] = block_coverage(units, games)
+    return {"games": games, "competition_periods": periods, "units": units, "players": players_table, "audit": audit, **aux}

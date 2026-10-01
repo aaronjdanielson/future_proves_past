@@ -16,6 +16,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 HOME = Path.home()
@@ -25,9 +26,36 @@ DEFAULT_PATHS = {
     "national": HOME / "Dropbox/kenpom/national.db",
     "events": HOME / "Dropbox/ncaa_roster_prediction/events.db",
     "intl_ratings": HOME / "Dropbox/kenpom/output/intl_team_ratings.db",
+    "intl_rapm_rolling": HOME / "Dropbox/intl_approx_rapm/data/intl_rapm_rolling.db",     # D-065: dated RAPM snapshots
 }
+OPTIONAL_STORES = ("intl_ratings", "intl_rapm_rolling")
 
 BOX_COLUMNS_NCAA = ["fg2a", "fg2m", "fg3a", "fg3m", "fta", "ftm", "orb", "drb", "ast", "stl", "blk", "tov", "pf"]
+TEAM_TOTALS = ["FGA", "FTA", "TOV", "AST", "REB", "POSS"]                                  # D-065 usage block
+
+
+STARTER_SOURCE = {0: "none", 1: "page", 2: "listing_order"}
+
+
+def resolve_intl_starter(frame: pd.DataFrame) -> pd.DataFrame:
+    """One ``Starter`` column (1/0/NaN) from the page value and the listing-order value (D-063).
+
+    The page value wins where it exists, except in a completely parsed team-game whose page marks other than five
+    starters (a page error upstream): those rows fall back to the listing order. ``starter_source`` (int8, see
+    ``STARTER_SOURCE``) records which value each row carries, for the build audit."""
+    n = len(frame)
+    page = pd.to_numeric(frame["Starter"], errors="coerce") if "Starter" in frame else pd.Series(np.nan, index=frame.index)
+    derived = pd.to_numeric(frame["StarterDerived"], errors="coerce") if "StarterDerived" in frame else pd.Series(np.nan, index=frame.index)
+    use_page = page.notna()
+    if n and use_page.any():
+        key = [frame["GameID"].to_numpy(), frame["TeamID"].to_numpy()]
+        complete = page.notna().groupby(key).transform("all")
+        marked = page.fillna(0.0).groupby(key).transform("sum")
+        use_page &= ~(complete & (marked != 5))
+    out = frame.drop(columns=[c for c in ("Starter", "StarterDerived") if c in frame])
+    out["Starter"] = np.where(use_page, page, derived)
+    out["starter_source"] = np.select([use_page.to_numpy(), derived.notna().to_numpy()], [1, 2], default=0).astype(np.int8)
+    return out
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -50,7 +78,7 @@ class Stores:
 
     def __post_init__(self):
         for name, path in self.paths.items():
-            if name != "intl_ratings" and not Path(path).is_file():
+            if name not in OPTIONAL_STORES and not Path(path).is_file():
                 raise FileNotFoundError(f"Missing upstream store {name!r}: {path}")
 
     def connection(self, name: str) -> sqlite3.Connection:
@@ -71,12 +99,23 @@ class Stores:
 
     PROBE_TABLES = {
         "roster": ("team_rosters", "ncaa_gamelogs", "ncaa_team_boxscores", "ncaa_summaries", "players",
-                   "recruiting_rankings", "ncaa_team_ratings", "team_seasons", "intl_gamelogs"),
+                   "recruiting_rankings", "ncaa_team_ratings", "team_seasons", "intl_gamelogs",
+                   "player_prior_league", "player_rapm", "player_rapm_intl", "on3_industry_rankings"),
         "intl": ("boxscores", "player_boxscores", "leagues", "league_seasons", "competition_periods", "team_history", "teams_years"),
         "national": ("player_boxscores", "boxscores", "tournament_years"),
         "events": ("player_boxscores", "boxscores", "tournament_years"),
         "intl_ratings": ("team_ratings",),
+        "intl_rapm_rolling": ("rapm_rolling",),
     }
+
+    def available(self, name: str) -> bool:
+        return name in self.paths and Path(self.paths[name]).is_file()
+
+    def has_table(self, store: str, table: str) -> bool:
+        if not self.available(store):
+            return False
+        row = self.connection(store).execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?", (table,)).fetchone()
+        return row is not None
 
     def content_probe(self, name: str) -> dict:
         """Row counts and maximum rowids of the tables this build reads.
@@ -134,19 +173,60 @@ class Stores:
         return self.frame("roster", "SELECT team_id, season, adj_o, adj_d, adj_pace, adj_o_sd, adj_d_sd FROM ncaa_team_ratings")
 
     def team_seasons(self) -> pd.DataFrame:
-        return self.frame("roster", "SELECT team_id, season, conference, conference_id, games_played, wins, losses FROM team_seasons")
+        # Style columns (fg3_rate .. dreb_pct) feed the destination block (D-065) as prior-season context.
+        return self.frame("roster", """
+            SELECT team_id, season, conference, conference_id, games_played, wins, losses,
+                   fg3_rate, fta_rate, to_pct, oreb_pct, dreb_pct
+            FROM team_seasons""")
+
+    # ------------------------------------------------------------------ D-065 blocks (roster.db)
+    def player_prior_league(self) -> pd.DataFrame | None:
+        """Origin league per roster row (player model's adopted feature; `unknown` marks scrape gaps)."""
+        if not self.has_table("roster", "player_prior_league"):
+            return None
+        return self.frame("roster", "SELECT player_id, season, prior_league, prior_league_known FROM player_prior_league")
+
+    def player_rapm(self) -> pd.DataFrame | None:
+        """Season-end NCAA RAPM per player-season; only seasons before the unit's may be read (D-065)."""
+        if not self.has_table("roster", "player_rapm"):
+            return None
+        return self.frame("roster", "SELECT player_id, season, orapm, drapm, rapm, n_poss FROM player_rapm")
+
+    def player_rapm_intl(self) -> pd.DataFrame | None:
+        """Season anchors of the joint cross-league international RAPM solve (one row per player-season)."""
+        if not self.has_table("roster", "player_rapm_intl"):
+            return None
+        return self.frame("roster", "SELECT player_id, season, orapm, drapm, rapm, n_poss, n_leagues FROM player_rapm_intl")
+
+    def on3_rankings(self) -> pd.DataFrame | None:
+        """On3 industry consensus per linked recruit and class (fills 247's rated-but-unranked units, D-065)."""
+        if not self.has_table("roster", "on3_industry_rankings"):
+            return None
+        return self.frame("roster", """
+            SELECT player_id, class_year, consensus_national_rank, consensus_stars, consensus_rating,
+                   on3_national_rank, on3_stars, on3_rating
+            FROM on3_industry_rankings WHERE player_id IS NOT NULL""")
+
+    def intl_rapm_rolling(self) -> pd.DataFrame | None:
+        """Dated rolling international RAPM snapshots per (player, upstream season label, league); optional store."""
+        if not self.has_table("intl_rapm_rolling", "rapm_rolling"):
+            return None
+        return self.frame("intl_rapm_rolling", """
+            SELECT player_id, season, league_id, cutoff_date, orapm, drapm, rapm, off_equiv FROM rapm_rolling""")
 
     def ncaa_team_games(self) -> pd.DataFrame:
         """Team lines; ``team_id`` 0 marks an untracked (non-D1) opponent and is dropped. Provider team minutes
         (``minutes``, added upstream 2026-09-29 from kenpom/ncaa.db) are read when the column exists (D-053)."""
         minutes = "minutes" if self.has_column("roster", "ncaa_team_boxscores", "minutes") else "NULL AS minutes"
         return self.frame("roster", f"""
-            SELECT game_id, team_id, season, home, pts, poss, game_type, {minutes} FROM ncaa_team_boxscores
+            SELECT game_id, team_id, season, home, pts, poss, game_type, {minutes},
+                   fga, fta, tov, ast, reb FROM ncaa_team_boxscores
             WHERE team_id IS NOT NULL AND team_id > 0""")
 
     def ncaa_summaries(self) -> pd.DataFrame:
-        """Provider season totals per roster unit; NULL gp means no stats line was published."""
-        return self.frame("roster", "SELECT player_id, season, team_id, gp, gs, min AS minutes FROM ncaa_summaries")
+        """Provider season totals per roster unit; NULL gp means no stats line was published. Points and rebounds
+        feed the destination block's returning shares (D-065)."""
+        return self.frame("roster", "SELECT player_id, season, team_id, gp, gs, min AS minutes, pts, trb FROM ncaa_summaries")
 
     def ncaa_gamelogs(self) -> pd.DataFrame:
         return self.frame("roster", f"""
@@ -178,15 +258,18 @@ class Stores:
 
     def intl_team_games(self) -> pd.DataFrame:
         return self.frame("intl", """
-            SELECT GameID, TeamID, LeagueID, Season, Date, Home, Minutes, PTS, POSS FROM boxscores""")
+            SELECT GameID, TeamID, LeagueID, Season, Date, Home, Minutes, PTS, POSS, FGA, FTA, TOV, AST, REB FROM boxscores""")
 
     def intl_player_games(self) -> pd.DataFrame:
-        # ``Starter`` (1/0) is filled by the upstream parser since 2026-09-29 for newly fetched pages (D-053).
-        starter = "Starter" if self.has_column("intl", "player_boxscores", "Starter") else "NULL AS Starter"
-        return self.frame("intl", f"""
+        # Starter flag (D-063): ``Starter`` is the value parsed from the box-score page (filled upstream since 2026-09-29,
+        # D-053); ``StarterDerived`` is the listing order (first five players listed per team, 99.96% agreement with the
+        # page value where both exist). ``resolve_intl_starter`` combines them.
+        present = [c for c in ("Starter", "StarterDerived") if self.has_column("intl", "player_boxscores", c)]
+        extra = "".join(f", {c}" for c in present)
+        return resolve_intl_starter(self.frame("intl", f"""
             SELECT GameID, TeamID, PlayerID, LeagueID, Season, Date, Home, Pos, Min,
-                   FGM, FGA, FG3M, FG3A, FTM, FTA, OREB, DREB, AST, PF, STL, TOV, BLK, PTS, {starter}
-            FROM player_boxscores""")
+                   FGM, FGA, FG3M, FG3A, FTM, FTA, OREB, DREB, AST, PF, STL, TOV, BLK, PTS{extra}
+            FROM player_boxscores"""))
 
     def intl_ratings(self) -> pd.DataFrame | None:
         if not Path(self.paths["intl_ratings"]).is_file():
@@ -200,7 +283,8 @@ class Stores:
 
     def tournament_team_games(self, store: str) -> pd.DataFrame:
         return self.frame(store, """
-            SELECT GameID, TeamID, TournamentID, YearID, TeamCode, Date, Home, Minutes, PTS FROM boxscores""")
+            SELECT GameID, TeamID, TournamentID, YearID, TeamCode, Date, Home, Minutes, PTS, POSS, FGA, FTA, TOV, AST, REB
+            FROM boxscores""")
 
     def has_column(self, store: str, table: str, column: str) -> bool:
         return any(row[1] == column for row in self.connection(store).execute(f'PRAGMA table_info("{table}")'))
