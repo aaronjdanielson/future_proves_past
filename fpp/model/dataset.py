@@ -52,6 +52,7 @@ class FoldDataset:
     excluded_rows: np.ndarray | None = None      # D-041 strict control: game rows removed from every input channel
     weighting: str = "player_balanced"           # D-062: "player_balanced" (registered) or "season_balanced"
     first_year_share: float | None = None        # D-062: mass share of first-season units per direction; None = natural
+    future: pd.Series | None = None              # D-070: standardized later-career production per training unit_id
 
     ASSUMED_ZERO = "NO_SEASON_LINE_AND_TEAM_MINUTE_SUM_CONSISTENT"
     WEIGHTINGS = ("player_balanced", "season_balanced")
@@ -80,6 +81,8 @@ class FoldDataset:
         cutoff = _days(fold.training_cutoff)
         # Normalizer on training games only: released by the training cutoff, players not held out.
         allowed = (store.release <= cutoff) & ~np.isin(store.player_id, np.fromiter(m["heldout_players"], dtype=np.int64))
+        if excluded is not None:
+            allowed &= ~excluded          # D-072: the strict control's normalization statistics exclude the same rows as its inputs
         rows = np.flatnonzero(allowed)
         rng = np.random.default_rng(seed)
         if len(rows) > normalizer_rows:
@@ -137,6 +140,11 @@ class FoldDataset:
                 recon.append(F.build_example(unit, store=self.store, normalizer=self.normalizer, static=z[i], static_mask=mask[i],
                                              static_cats=cats[i], intl_rows=intl, ncaa_rows=ncaa, cutoff_days=cutoff,
                                              direction="+", k=window.k, weight=float(w_recon[j])))
+        if self.future is not None and len(self.future):
+            for e in forward + recon:
+                v = self.future.get(e.unit_id, np.nan)
+                if np.isfinite(v):
+                    e.targets["future"], e.targets["future_known"] = float(v), True
         return forward + recon
 
     def evaluation_examples(self) -> list[F.Example]:
@@ -149,6 +157,29 @@ class FoldDataset:
             out.append(F.build_example(unit, store=self.store, normalizer=self.normalizer, static=z[i], static_mask=mask[i],
                                        static_cats=cats[i], intl_rows=intl, ncaa_rows=ncaa, cutoff_days=cutoff, direction="-"))
         return out
+
+
+def future_targets(tables: dict, fold: Fold, units: pd.DataFrame, heldout_players, *, min_games: int = 10) -> pd.Series:
+    """D-070 auxiliary target per training unit: the player's later professional production, points + rebounds +
+    assists per 40 minutes over his international club games after his last NCAA season that were released by the
+    fold's training cutoff (at least ``min_games``), standardized over the training units that have one. Held-out players
+    (the stopping season's, the evaluation cohort's, the test cohort's) get no target, so nothing dated after their
+    cutoffs shapes the representation that scores them (D-033). Indexed by unit_id; absent = unknown."""
+    last_end = pd.to_datetime(tables["units"].groupby("player_id")["period_end"].max())
+    g = tables["games"]
+    g = g[(g["source"] == "intl") & g["player_id"].isin(units["player_id"]) & ~g["player_id"].isin(set(int(p) for p in heldout_players))]
+    g = g[pd.to_datetime(g["release_date"]) <= fold.training_cutoff]
+    g = g.merge(last_end.rename("last_end"), left_on="player_id", right_index=True)
+    g = g[pd.to_datetime(g["date"]) > g["last_end"]]
+    agg = g.groupby("player_id").agg(games=("date", "size"), minutes=("minutes", "sum"), pts=("pts", "sum"), orb=("orb", "sum"),
+                                     drb=("drb", "sum"), ast=("ast", "sum"))
+    agg = agg[(agg["games"] >= min_games) & (agg["minutes"] >= 100)]
+    pra40 = 40.0 * (agg["pts"] + agg["orb"] + agg["drb"] + agg["ast"]) / agg["minutes"]
+    if len(pra40) < 2:
+        return pd.Series(dtype=float)
+    z = (pra40 - pra40.mean()) / (pra40.std(ddof=0) + 1e-9)
+    out = units[["unit_id", "player_id"]].merge(z.rename("future"), left_on="player_id", right_index=True, how="inner")
+    return out.set_index("unit_id")["future"]
 
 
 def validate_weighting(weighting: str, first_year_share: float | None) -> None:

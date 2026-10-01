@@ -34,12 +34,12 @@ from ..data.folds import Fold, player_index
 from ..data.manifests import file_sha256, load_manifest, write_manifest
 from ..data.tables import read_tables
 from ..model import features as F
-from ..model.dataset import FoldDataset, cohort_masks, first_year_flags, stratum_weights
+from ..model.dataset import FoldDataset, cohort_masks, first_year_flags, future_targets, stratum_weights
 from ..model.distributions import SeasonParameters
 from ..model.baseline import AggregateBaseline
 from ..model.observation import SummedRoundingSensitivityKernel
 from ..model.torch_likelihood import DifferentiableSeasonLikelihood, InterceptOnlySeasonModel, SeasonBatch
-from ..model.tower import PARAMETER_FLOORS, ReferenceTower
+from ..model.tower import ARCHITECTURE_DEFAULTS, PARAMETER_FLOORS, ReferenceTower
 from .recovery import fit as lbfgs_fit
 
 STRATA = ["intl_entrant", "first_year", "later_year_intl", "no_tracked_history", "club_50plus"]
@@ -272,7 +272,9 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             exclude_post_first_season_logs: bool = False, recon_holdout_share: float = 0.0,
             test_registration: Path | None = None, deploy: bool = False, label_scope: str = "all",
             weighting: str = "player_balanced", first_year_share: float | None = None,
-            feature_schema: str = "auto", feature_blocks=None, cross_stop: int | None = None) -> dict:
+            feature_schema: str = "auto", feature_blocks=None, cross_stop: int | None = None,
+            width: int = 32, hidden: int = 64, direction_film: bool = False, future_weight: float = 0.0,
+            game_dropout: float = 0.0, average_last: int = 1) -> dict:
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {sorted(ARMS)}; D (C plus forward fine-tuning) is not implemented")
     if cross_stop not in (None, 0, 1):
@@ -346,6 +348,9 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         # D-041 guard: the exclusion must survive every dataset rebuild above (a dropped mask reproduces arm A exactly).
         if ds.excluded_rows is None or int(ds.excluded_rows.sum()) == 0:
             raise RuntimeError("Strict control requested but no game rows are excluded")
+    if future_weight > 0:
+        # D-070: the auxiliary "future" target (later professional production) for training units; never for held-out players.
+        ds = dataclasses.replace(ds, future=future_targets(tab, fold, ds.train_units, ds.heldout | stop_players))
     train, stop = _examples_by_season(ds, train_max_season=fold_season - 2, stop_season=fold_season - 1, use_windows=(arm in RECON_ARMS),
                                       stop_players=None if cross_stop is None else stop_players)
     recon_holdout, recon_test = None, []
@@ -392,7 +397,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         from ..model.pool import CONTEXT_FIELDS
         from ..model.tower import OutcomeHeads
         tower = ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_context=len(CONTEXT_FIELDS),
-                               n_fields=n_fields, n_static=n_static)
+                               n_fields=n_fields, n_static=n_static, width=width, hidden=hidden, direction_film=direction_film,
+                               future_head=future_weight > 0)
         ckpt = Path(pretrained_dir) / f"pool_{fold_season}_{seed}.pt"
         if ckpt.exists():
             pretrained_info = load_manifest(ckpt.with_suffix(".json"))
@@ -405,7 +411,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         tower.load_state_dict(torch.load(ckpt, weights_only=True))
         tower.heads = OutcomeHeads(base_model.reference())     # forward heads start at the fitted intercepts, as in A
     else:
-        tower = (ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static) if model_kind == "tower"
+        tower = (ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static, width=width, hidden=hidden,
+                                direction_film=direction_film, future_head=future_weight > 0) if model_kind == "tower"
                  else AggregateBaseline(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static))
     optimizer = torch.optim.Adam(tower.parameters(), lr=lr)
     curve, best, best_state, bad_epochs = [], math.inf, None, 0
@@ -422,6 +429,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     # reconstruction arm adds an independently drawn, separately normalized reconstruction batch to each step.
     forward_rng = np.random.default_rng(seed)
     recon_rng = np.random.default_rng(seed + 11)
+    aug_rng = np.random.default_rng(seed + 23)          # D-070 game dropout
+    epoch_states = {}                                   # D-070 checkpoint averaging: epoch -> state dict
     updates = {"forward_steps": 0, "forward_examples": 0, "reconstruction_examples": 0, "lambda_plus": lambda_plus}
 
     def _term(batch, sel_weight):
@@ -431,6 +440,11 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         finite = torch.isfinite(lp)
         w = batch["weight"]
         term = (w[finite] * (-lp[finite])).sum() / w[finite].sum() if bool(finite.any()) else torch.zeros((), dtype=torch.float64)
+        if future_weight > 0 and "future" in params:
+            known = batch["future_known"]
+            if bool(known.any()):           # D-070: squared error on the standardized later-career production
+                err = (params["future"][known].double() - batch["future"][known].double()) ** 2
+                term = term + future_weight * err.mean()
         return sel_weight * term, int((~finite).sum())
 
     # Epoch checkpoints with optimizer and RNG state; a status record; resumption (D-040).
@@ -442,6 +456,9 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         curve, best, best_state, bad_epochs, updates, active = ck["curve"], ck["best"], ck["best_state"], ck["bad_epochs"], ck["updates"], ck["active"]
         forward_rng.bit_generator.state = ck["forward_rng"]
         recon_rng.bit_generator.state = ck["recon_rng"]
+        if "aug_rng" in ck:
+            aug_rng.bit_generator.state = ck["aug_rng"]
+        epoch_states = ck.get("epoch_states", {})
         torch.set_rng_state(ck["torch_rng"])
         epoch_start = int(ck["epoch"])
         print(json.dumps({"fold": fold_season, "arm": arm, "resumed_after_epoch": epoch_start, "best_stop_nll": best}), file=sys.stderr, flush=True)
@@ -450,6 +467,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         torch.save({"tower": tower.state_dict(), "optimizer": optimizer.state_dict(), "epoch": done, "curve": curve, "best": best,
                     "best_state": best_state, "bad_epochs": bad_epochs, "updates": updates, "active": active,
                     "forward_rng": forward_rng.bit_generator.state, "recon_rng": recon_rng.bit_generator.state,
+                    "aug_rng": aug_rng.bit_generator.state, "epoch_states": epoch_states,
                     "torch_rng": torch.get_rng_state()}, checkpoint_path)
         best_epoch = min(curve, key=lambda c: c["stop_nll"])["epoch"] if curve else None
         _status("training", epochs_completed=done, epochs_max=epochs, patience=patience, best_epoch=best_epoch,
@@ -463,6 +481,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         recon_order = recon_rng.permutation(len(recon_examples)) if (lambda_plus > 0 and recon_examples) else None
         recon_pos = 0
         for group in _batches(forward_examples, batch_size, forward_rng):
+            if game_dropout > 0:
+                group = [F.drop_games(e, game_dropout, aug_rng) for e in group]
             loss, bad = _term(F.collate(group), 1.0)
             invalid += bad
             updates["forward_steps"] += 1
@@ -472,6 +492,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                     recon_order, recon_pos = recon_rng.permutation(len(recon_examples)), 0
                 rgroup = [recon_examples[j] for j in recon_order[recon_pos:recon_pos + batch_size]]
                 recon_pos += batch_size
+                if game_dropout > 0:
+                    rgroup = [F.drop_games(e, game_dropout, aug_rng) for e in rgroup]
                 aux, bad = _term(F.collate(rgroup), lambda_plus)
                 loss, invalid = loss + aux, invalid + bad
                 updates["reconstruction_examples"] += len(rgroup)
@@ -494,10 +516,26 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             best_state = {k: v.detach().clone() for k, v in tower.state_dict().items()}
         else:
             bad_epochs += 1
+        if average_last > 1:
+            epoch_states[epoch + 1] = {k: v.detach().clone() for k, v in tower.state_dict().items()}
         _checkpoint(epoch + 1)
         if bad_epochs >= patience:
             break
     _status("scoring", epochs_completed=len(curve), best_stop_nll=best, active_wall_seconds=active["wall_seconds"], active_cpu_seconds=active["cpu_seconds"])
+    averaging = None
+    if average_last > 1 and curve:
+        # D-070: average the weights of the ``average_last`` epochs ending at the best epoch; keep it if the stopping score improves.
+        best_epoch = min(curve, key=lambda c: c["stop_nll"])["epoch"]
+        window = [e for e in range(best_epoch - average_last + 1, best_epoch + 1) if e in epoch_states]
+        if len(window) >= 2:
+            avg = {k: (sum(epoch_states[e][k].double() for e in window) / len(window)).to(best_state[k].dtype) for k in best_state}
+            tower.load_state_dict(avg)
+            tower.eval()
+            s_mean, s_w = _stop_scores(_score(lik_eval, stop, batch_size=batch_size, tower=tower))
+            avg_stop = s_mean if first_year_share is None else s_w
+            averaging = {"window_epochs": window, "stop_nll_best_epoch": best, "stop_nll_averaged": avg_stop, "used": bool(avg_stop < best)}
+            if avg_stop < best:
+                best_state, best = avg, avg_stop
     tower.load_state_dict(best_state)
     tower.eval()
     # Quadrature verification of the selected model on the stopping set (training nodes vs double).
@@ -569,6 +607,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "exclude_assumed_zeros": exclude_assumed_zeros, "lambda_plus": lambda_plus, "deploy": deploy, "label_scope": label_scope,
                    "weighting": weighting, "first_year_share": first_year_share, "stop_criterion": stop_criterion,
                    "feature_schema": {**fs.describe(), "missing_game_fields": list(store.missing_fields)},
+                   "architecture": getattr(tower, "architecture", dict(ARCHITECTURE_DEFAULTS)),
+                   "future_weight": future_weight, "game_dropout": game_dropout, "average_last": average_last,
                    "post_first_season_logs": ("excluded from every input channel, the pool and reconstruction (D-041 strict control)"
                                               if exclude_post_first_season_logs else "included"),
                    "excluded_game_rows": int(ds.excluded_rows.sum()) if ds.excluded_rows is not None else 0,
@@ -588,10 +628,11 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         "reconstruction_heldout": recon_holdout,
         "test_registration": ({"path": str(test_registration), "sha256": file_sha256(Path(test_registration))} if test_registration else None),
         "counts": {"train_forward": n_fwd, "train_reconstruction": n_rec, "stop_units": len(stop), "eval_units": len(evaluate),
-                   "eval_invalid": int((~finite).sum()), **mass_shares},
+                   "eval_invalid": int((~finite).sum()), **mass_shares,
+                   "future_targets": int(sum(bool(e.targets.get("future_known", False)) for e in train))},
         "baseline": {"fit": baseline_fit, "parameters": {k: (v.tolist() if v.dim() else float(v)) for k, v in base_params.items()},
                      "stop_nll": stop_nll_base, "stop_nll_unweighted": base_stop[0], "stop_nll_first_year_weighted": base_stop[1]},
-        "training": {"curve": curve, "best_stop_nll": best, "epochs_run": len(curve), "seconds": time.time() - t2},
+        "training": {"curve": curve, "best_stop_nll": best, "epochs_run": len(curve), "seconds": time.time() - t2, "averaging": averaging},
         "timing": {"data_seconds": t_data, "baseline_seconds": t_base, "total_seconds": time.time() - t0},
         "evaluation": summary,
     }

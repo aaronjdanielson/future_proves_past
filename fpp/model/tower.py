@@ -13,6 +13,15 @@ $Z_{it}, C_{jt}^{(c_t)}$, and the time basis $v_{\\rm time}$ to $u$; the
 heads map $u$ to the season-distribution parameters with logistic links
 for probabilities and softplus links for positive parameters, initialized
 at the intercept-only reference so an untrained tower reproduces it.
+
+Capacity and direction options (D-070): ``width`` (the representation size
+D, registered 32) and ``hidden`` (the MLP hidden size, registered 64) are
+constructor arguments; ``direction_film`` adds a learned feature-wise
+scale and shift on the fused channel vectors conditioned on the example's
+direction (forward or reconstruction), initialized at the identity; and
+``future_head`` adds a linear head on $u$ predicting a player's later
+professional production (the "future" auxiliary target). The defaults
+reproduce the registered architecture exactly.
 """
 from __future__ import annotations
 
@@ -37,10 +46,11 @@ def _mlp(inp: int, out: int = D, hidden: int = HIDDEN) -> nn.Sequential:
 
 
 class GameEncoder(nn.Module):
-    def __init__(self, n_fields: int, vocab_sizes: list[int], n_clocks: int = len(F.CLOCK_NAMES)):
+    def __init__(self, n_fields: int, vocab_sizes: list[int], n_clocks: int = len(F.CLOCK_NAMES), width: int = D, hidden: int = HIDDEN):
         super().__init__()
+        self.width = width
         self.embeddings = nn.ModuleList([nn.Embedding(n + 1, EMBED) for n in vocab_sizes])
-        self.net = _mlp(2 * n_fields + n_clocks + EMBED * len(vocab_sizes))
+        self.net = _mlp(2 * n_fields + n_clocks + EMBED * len(vocab_sizes), width, hidden)
 
     def forward(self, ch: dict) -> torch.Tensor:
         parts = [ch["x"], ch["mask"].float(), ch["clocks"]]
@@ -57,13 +67,14 @@ def masked_mean(e: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
 class ChannelPool(nn.Module):
     """Fixed-weight summaries, contrasts, evidence, and fusion for one channel."""
 
-    def __init__(self, half_life_years: float = F.HALF_LIFE_YEARS):
+    def __init__(self, half_life_years: float = F.HALF_LIFE_YEARS, width: int = D, hidden: int = HIDDEN):
         super().__init__()
         self.half_life = half_life_years
-        self.season_projection = nn.Linear(2 * D + 2, D)
-        n_in = 4 * D + D + 1 + len(F.EVIDENCE_NAMES) + 3   # hL, hR, dRL, dseason, z_sum, flag, evidence, m_hist
-        self.fusion = _mlp(n_in)
-        self.empty = nn.Parameter(torch.zeros(D))
+        self.width = width
+        self.season_projection = nn.Linear(2 * width + 2, width)
+        n_in = 4 * width + width + 1 + len(F.EVIDENCE_NAMES) + 3   # hL, hR, dRL, dseason, z_sum, flag, evidence, m_hist
+        self.fusion = _mlp(n_in, width, hidden)
+        self.empty = nn.Parameter(torch.zeros(width))
 
     def forward(self, e: torch.Tensor, ch: dict) -> torch.Tensor:
         valid = ch["valid"]                                           # [B, T]
@@ -74,12 +85,12 @@ class ChannelPool(nn.Module):
         d_rl = h_r - h_l
         d_season, flags = self.contrasts(e, ch, w)
         B = e.shape[0]
-        z_sum = torch.zeros(B, D, device=e.device)                     # summary channel: not yet populated
+        z_sum = torch.zeros(B, self.width, device=e.device)            # summary channel: not yet populated
         z_flag = torch.zeros(B, 1, device=e.device)
         present = ch["present"].float().unsqueeze(-1)
         m_hist = torch.cat([present, flags], dim=-1)
         fused = self.fusion(torch.cat([h_l, h_r, d_rl, d_season, z_sum, z_flag, ch["evidence"], m_hist], dim=-1))
-        return torch.where(present.bool(), fused, self.empty.expand(B, D))
+        return torch.where(present.bool(), fused, self.empty.expand(B, self.width))
 
     def contrasts(self, e, ch, w):
         valid, season, order = ch["valid"], ch["season"], ch["order"]
@@ -104,16 +115,28 @@ class ChannelPool(nn.Module):
 
 
 class Translator(nn.Module):
-    def __init__(self, static_vocab_sizes: list[int], n_static: int | None = None):
+    def __init__(self, static_vocab_sizes: list[int], n_static: int | None = None, width: int = D, hidden: int = HIDDEN,
+                 direction_film: bool = False):
         super().__init__()
+        self.width = width
         self.embeddings = nn.ModuleList([nn.Embedding(n + 1, EMBED) for n in static_vocab_sizes])
         self.n_static_continuous = len(F.STATIC_CONTINUOUS) if n_static is None else int(n_static)   # schema width (D-065)
         n_static = 2 * self.n_static_continuous + EMBED * len(static_vocab_sizes)
         n_time = 2 * (3 + 2 * len(F.TIME_BASIS_CENTERS))
-        self.net = _mlp(2 * D + n_static + n_time)
+        self.net = _mlp(2 * width + n_static + n_time, width, hidden)
+        # D-070: feature-wise scale and shift of the two fused channel vectors by direction (0 forward, 1 reconstruction),
+        # zero-initialized so the registered mapping is reproduced until trained.
+        self.film = nn.Embedding(2, 4 * width) if direction_film else None
+        if self.film is not None:
+            nn.init.zeros_(self.film.weight)
 
     def forward(self, h_intl, h_ncaa, batch) -> torch.Tensor:
-        parts = [h_intl, h_ncaa, batch["static"], batch["static_mask"].float()]
+        channels = torch.cat([h_intl, h_ncaa], dim=-1)
+        if self.film is not None:
+            idx = (batch["direction"] > 0).long()                       # +1 reconstruction, -1 forward (features.collate)
+            gamma, beta = self.film(idx).chunk(2, dim=-1)
+            channels = channels * (1.0 + gamma) + beta
+        parts = [channels, batch["static"], batch["static_mask"].float()]
         parts += [emb(batch["static_cats"][:, j]) for j, emb in enumerate(self.embeddings)]
         parts += [batch["time"], batch["time_mask"].float()]
         return self.net(torch.cat(parts, dim=-1))
@@ -152,13 +175,13 @@ class OutcomeHeads(nn.Module):
     """
     ORDER = ["pi_g", "alpha_g", "beta_g", "alpha_j", "beta_j", "nu", "alpha_m", "beta_m", "pi_m"]
 
-    def __init__(self, reference: SeasonParameters | None = None, init_scale: float = 0.05):
+    def __init__(self, reference: SeasonParameters | None = None, init_scale: float = 0.05, width: int = D):
         super().__init__()
         p = reference or SeasonParameters()
         prod = p.production
         fl = PARAMETER_FLOORS
         self.n_out = 9 + 2 * len(RATE_NAMES) + 2 * len(MAKE_ATTEMPTS)
-        self.linear = nn.Linear(D, self.n_out)
+        self.linear = nn.Linear(width, self.n_out)
         with torch.no_grad():
             self.linear.weight.mul_(init_scale)
             bias = [_logit_within(p.participation_probability), _inverse_softplus_above(p.games_alpha, fl["alpha_g"]),
@@ -206,11 +229,11 @@ class PretrainHead(nn.Module):
     date) → per-game season-distribution parameters through its own OutcomeHeads, so the
     forward heads never see pool targets."""
 
-    def __init__(self, encoder: GameEncoder, n_context: int, reference: SeasonParameters | None = None):
+    def __init__(self, encoder: GameEncoder, n_context: int, reference: SeasonParameters | None = None, width: int = D, hidden: int = HIDDEN):
         super().__init__()
         self.encoder_embeddings = encoder.embeddings          # shared category embeddings
-        self.net = _mlp(D + 2 * n_context + EMBED * len(encoder.embeddings))
-        self.heads = OutcomeHeads(reference)
+        self.net = _mlp(width + 2 * n_context + EMBED * len(encoder.embeddings), width, hidden)
+        self.heads = OutcomeHeads(reference, width=width)
 
     def forward(self, u: torch.Tensor, batch: dict) -> dict:
         parts = [u, batch["context"], batch["context_mask"].float()]
@@ -218,19 +241,25 @@ class PretrainHead(nn.Module):
         return self.heads(self.net(torch.cat(parts, dim=-1)))
 
 
+ARCHITECTURE_DEFAULTS = {"width": D, "hidden": HIDDEN, "direction_film": False, "future_head": False}
+
+
 class ReferenceTower(nn.Module):
     """Encoder → per-channel pooling/fusion → translator → heads (+ the pool's next-game head)."""
 
     def __init__(self, vocab_sizes: list[int], static_vocab_sizes: list[int], reference: SeasonParameters | None = None,
-                 n_context: int = 0, n_fields: int | None = None, n_static: int | None = None):
+                 n_context: int = 0, n_fields: int | None = None, n_static: int | None = None,
+                 width: int = D, hidden: int = HIDDEN, direction_film: bool = False, future_head: bool = False):
         super().__init__()
+        self.architecture = {"width": int(width), "hidden": int(hidden), "direction_film": bool(direction_film), "future_head": bool(future_head)}
         # Input widths follow the run's feature schema (D-065); the defaults are the registered v7 widths.
-        self.encoder = GameEncoder(len(F.FIELD_NAMES) if n_fields is None else int(n_fields), vocab_sizes)
-        self.pool_intl = ChannelPool()
-        self.pool_ncaa = ChannelPool()
-        self.translator = Translator(static_vocab_sizes, n_static)
-        self.heads = OutcomeHeads(reference)
-        self.pretrain_head = PretrainHead(self.encoder, n_context, reference) if n_context else None
+        self.encoder = GameEncoder(len(F.FIELD_NAMES) if n_fields is None else int(n_fields), vocab_sizes, width=width, hidden=hidden)
+        self.pool_intl = ChannelPool(width=width, hidden=hidden)
+        self.pool_ncaa = ChannelPool(width=width, hidden=hidden)
+        self.translator = Translator(static_vocab_sizes, n_static, width=width, hidden=hidden, direction_film=direction_film)
+        self.heads = OutcomeHeads(reference, width=width)
+        self.pretrain_head = PretrainHead(self.encoder, n_context, reference, width=width, hidden=hidden) if n_context else None
+        self.future_head = nn.Linear(width, 1) if future_head else None
 
     def represent(self, batch: dict) -> torch.Tensor:
         h_intl = self.pool_intl(self.encoder(batch["intl"]), batch["intl"])
@@ -238,7 +267,11 @@ class ReferenceTower(nn.Module):
         return self.translator(h_intl, h_ncaa, batch)
 
     def forward(self, batch: dict) -> dict:
-        return self.heads(self.represent(batch))
+        u = self.represent(batch)
+        out = self.heads(u)
+        if self.future_head is not None:
+            out["future"] = self.future_head(u).squeeze(-1)        # standardized later-career production (D-070)
+        return out
 
     def pretrain_forward(self, batch: dict) -> dict:
         """Pool objective: the same encoder, pooling, and translator (NCAA channel empty, static and

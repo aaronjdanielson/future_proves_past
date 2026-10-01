@@ -531,6 +531,38 @@ def collate(examples: list[Example]) -> dict:
         "overtime": torch.tensor([e.targets["overtime"] for e in examples], dtype=torch.float64),
         "overtime_known": torch.tensor([e.targets["overtime_known"] for e in examples], dtype=torch.bool),
         "schedule": torch.tensor([e.targets["schedule"] for e in examples], dtype=torch.long),
+        # D-070 auxiliary target: the player's standardized later professional production (NaN/False when unknown).
+        "future": torch.tensor([float(e.targets.get("future", float("nan"))) for e in examples], dtype=torch.float32),
+        "future_known": torch.tensor([bool(e.targets.get("future_known", False)) for e in examples], dtype=torch.bool),
         "unit_id": [e.unit_id for e in examples],
     }
     return batch
+
+
+def drop_games(example: Example, p: float, rng: np.random.Generator) -> Example:
+    """Training augmentation (D-070): each game of each channel is dropped with probability ``p`` (at least one row is
+    kept), the game-count and minutes evidence are recomputed and the first-game flag moves to the first kept row. The
+    clocks, recency, season labels and chronological ranks of the kept rows are unchanged."""
+    if p <= 0:
+        return example
+
+    def thin(ch: Channel) -> Channel:
+        n = len(ch.weight)
+        if n <= 1:
+            return ch
+        keep = rng.random(n) >= p
+        if not keep.any():
+            keep[rng.integers(n)] = True
+        rows = np.flatnonzero(keep)
+        clocks = ch.clocks[rows].copy()
+        clocks[:, 5] = 0.0
+        clocks[0, 5] = 1.0
+        evidence = ch.evidence.copy()
+        minutes = ch.weight[rows] - 1.0
+        evidence[0] = np.log1p(len(rows))
+        evidence[1] = np.log1p(float(np.maximum(minutes, 0.0).sum()))
+        return Channel(ch.x[rows], ch.mask[rows], ch.cats[rows], clocks, ch.weight[rows], ch.recency[rows], ch.season[rows], ch.order[rows],
+                       evidence.astype(np.float32), ch.present)
+
+    return Example(example.unit_id, example.direction, example.k, thin(example.intl), thin(example.ncaa), example.static, example.static_mask,
+                   example.static_cats, example.time, example.time_mask, example.targets, example.weight)

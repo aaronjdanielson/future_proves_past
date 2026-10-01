@@ -101,6 +101,12 @@ def main(argv=None) -> int:
     train.add_argument("--cross-stop", type=int, choices=[0, 1], default=None,
                        help="D-067: early-stop on this half of the validation season's players (fixed split); the other half "
                             "trains. Run 0 and 1 as a pair and pool them; the test season stays fully held out")
+    train.add_argument("--width", type=int, default=32, help="D-070: representation width (registered 32)")
+    train.add_argument("--hidden", type=int, default=64, help="D-070: MLP hidden size (registered 64)")
+    train.add_argument("--direction-film", action="store_true", help="D-070: direction-conditioned scale and shift in the translator")
+    train.add_argument("--future-weight", type=float, default=0.0, help="D-070: weight of the later-career auxiliary target (0 = off)")
+    train.add_argument("--game-dropout", type=float, default=0.0, help="D-070: drop each game of a channel with this probability during training")
+    train.add_argument("--average-last", type=int, default=1, help="D-070: average the weights of this many epochs ending at the best (1 = off)")
     train.add_argument("--deploy", action="store_true",
                        help="deployment (D-051): fold = test season + 1, train through the test season - 1, early-stop on the test season, no evaluation")
     train.add_argument("--test-registration", type=Path,
@@ -173,7 +179,9 @@ def main(argv=None) -> int:
                               recon_holdout_share=args.recon_holdout_share,
                               allow_test=args.test_registration is not None and not args.deploy, test_registration=args.test_registration,
                               deploy=args.deploy, label_scope=args.label_scope, weighting=args.weighting, first_year_share=fy_share,
-                              feature_schema=args.feature_schema, feature_blocks=blocks, cross_stop=args.cross_stop)
+                              feature_schema=args.feature_schema, feature_blocks=blocks, cross_stop=args.cross_stop,
+                              width=args.width, hidden=args.hidden, direction_film=args.direction_film, future_weight=args.future_weight,
+                              game_dropout=args.game_dropout, average_last=args.average_last)
             result = {"saved": str(args.out), "arm": args.arm, "model": args.model, "fold": args.fold, "seed": args.seed,
                       "counts": payload["counts"], "training": {"epochs_run": payload["training"]["epochs_run"],
                                                                  "best_stop_nll": payload["training"]["best_stop_nll"],
