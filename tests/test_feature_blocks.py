@@ -251,6 +251,22 @@ class UnitBlockTests(unittest.TestCase):
         self.assertEqual(list(out["first_year"]), [False, True, False])                 # the 2003 returner is not a first season
         self.assertEqual(list(out["ncaa_seasons_completed"]), [2, 0, 1])
 
+    def test_career_history_normalizes_first_year_roles(self):
+        """D-074: a first D1 season in a freshman class is a freshman whatever the upstream role rule read from tracked
+        international games; later-year units and non-freshman classes keep the upstream role."""
+        from fpp.data.assemble import career_history
+        all_rosters = pd.DataFrame({"player_id": [1, 2, 2, 3, 4, 5], "season": [2027, 2026, 2027, 2027, 2027, 2027],
+                                    "team_id": [5, 6, 7, 8, 9, 10]})
+        units = pd.DataFrame({"player_id": [1, 2, 3, 4, 5], "season": [2027] * 5,
+                              "role": ["transfer_d1", "transfer_d1", "transfer_d1", "transfer_nond1", "transfer_d1"],
+                              "class": ["Fr", "Fr", "Jr", "Jr", "RS-Fr"]})
+        out = career_history(all_rosters, units)
+        self.assertEqual(list(out["first_year"]), [True, False, True, True, True])
+        self.assertEqual(list(out["role"]), ["freshman", "transfer_d1", "transfer_d1", "transfer_nond1", "freshman"])
+        self.assertEqual(list(out["role_upstream"]), ["transfer_d1", "transfer_d1", "transfer_d1", "transfer_nond1", "transfer_d1"])
+        no_role = career_history(all_rosters, units.drop(columns=["role", "class"]))
+        self.assertNotIn("role_upstream", no_role)                                      # fixtures without roles: unchanged
+
     def test_strict_mask_boundary_for_a_first_season_before_the_tables(self):
         from fpp.model.dataset import post_first_season_mask
         games = _pool_games(n_players=1, n_games=4)                                     # non-NCAA games 2021-10-01 .. 2021-12-10
