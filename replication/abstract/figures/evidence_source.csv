@@ -1,0 +1,6 @@
+evaluation,season,fit,mean_log_score_gain,ci95_low_log,ci95_high_log,n,source
+Historical,2021–22,1,1.75,0.85,2.64,,Author-supplied SSAC27_abstract_revised(1).tex comments; not rerun; international/national-team history
+Historical,2022–23,1,0.84,0.18,1.50,,Author-supplied SSAC27_abstract_revised(1).tex comments; not rerun; international/national-team history
+Historical,2022–23,2,0.86,0.31,1.41,,Author-supplied SSAC27_abstract_revised(1).tex comments; not rerun; international/national-team history
+Held-out test,2025–26,1,0.26,-0.12,0.64,307,Author-supplied SSAC27_abstract_revised(1).tex comments; not rerun; registered test; international/national-team/showcase history
+Held-out test,2025–26,2,0.52,0.16,0.88,307,Author-supplied SSAC27_abstract_revised(1).tex comments; not rerun; registered test; international/national-team/showcase history

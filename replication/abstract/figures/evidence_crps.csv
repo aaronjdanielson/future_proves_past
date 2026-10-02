@@ -1,0 +1,4 @@
+evaluation,season,combined,n,mean_log_score_gain,ci95_low_log,ci95_high_log,geometric_mean_probability_ratio,ci95_low_ratio,ci95_high_ratio,source
+Held-Out Seasons,2021–22,fit 1,105,1.75,0.85,2.64,5.754602676005731,2.3396468519259908,14.013203607733615,registered: Author-supplied SSAC27_abstract_revised(1).tex comments; not rerun; international/national-team history
+Held-Out Seasons,2022–23,mean over the fits,124,0.8521061820783978,0.3411636222667178,1.3630487418900779,2.3445797671806137,1.4065833703938893,3.9080899151632553,"mean over the fits from the per-unit files CRPS_2023_s1_history, CRPS_2023_s2_history"
+Out-of-Time Test Season,2025–26,mean over the fits,307,0.38982999193407486,0.10037691374792912,0.6792830701202206,1.4767297165776543,1.1055875507008315,1.9724631074591557,"mean over the fits from the per-unit files CRPS_TEST_2026_s1_primary, CRPS_TEST_2026_s2_primary"
