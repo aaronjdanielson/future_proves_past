@@ -15,6 +15,24 @@ trained with the help of 10,000+ former NCAA players who later played abroad.</p
   <img src="https://img.shields.io/badge/2026--27%20forecasts-282%20freshmen-orange" alt="282 freshmen forecast">
 </p>
 
+<div align="center">
+<table>
+  <tr>
+    <td align="center" width="200"><h2>5.7×</h2>2021–22<br><sub>held-out season</sub></td>
+    <td align="center" width="200"><h2>2.3×</h2>2022–23<br><sub>held-out season</sub></td>
+    <td align="center" width="200"><h2>1.5×</h2>2025–26<br><sub>registered one-shot test</sub></td>
+  </tr>
+</table>
+<sub>How many times more probable the seasons that actually happened were, under the model that learned from former players' later careers.</sub>
+</div>
+
+<p align="center">
+  <a href="#the-idea-in-thirty-seconds"><b>The idea</b></a> &nbsp;·&nbsp;
+  <a href="#does-learning-backward-help"><b>The evidence</b></a> &nbsp;·&nbsp;
+  <a href="#forecasts-for-202627"><b>2026–27 forecasts</b></a> &nbsp;·&nbsp;
+  <a href="#replicate-the-abstract"><b>Replicate</b></a>
+</p>
+
 <p align="center">The data and saved models behind the SSAC27 abstract, with step-by-step replication instructions, are under <a href="#replicate-the-abstract">Replicate the abstract</a>.</p>
 
 ---
@@ -38,6 +56,14 @@ flowchart LR
     R["Recruit's earlier games"] --> N2[("Same parameters")] --> S["Freshman season<br/>distribution"]
   end
   N1 -. same weights .- N2
+  classDef back fill:#A78BFA,stroke:#7C5CE0,color:#0F172A
+  classDef fwd fill:#34D399,stroke:#0F8A6B,color:#0F172A
+  classDef tower fill:#FBBF24,stroke:#D97706,color:#0F172A
+  class L,K back
+  class R,S fwd
+  class N1,N2 tower
+  style B fill:none,stroke:#A78BFA,stroke-width:2px
+  style F fill:none,stroke:#34D399,stroke-width:2px
 ```
 
 A worked example from the paper. A forward example takes a prospect's games at about age 19 and predicts the NCAA season that opens when he is 20: the history sits one year *before* the target. A reconstruction example takes a former player's games at about age 23 and reconstructs that same season at 20: the history sits three years *after* it. Age and signed time tell the network which job it is doing; the reconstruction example needs no pre-college history at all, which is why the large population of former players can teach it. The paper's three questions follow directly:
@@ -70,7 +96,10 @@ The backward task updates exactly the parts a forward forecast uses: the game en
   <img src="assets/fig_model_evaluation_dark.png" alt="Model evaluation: probability ratios per out-of-sample season and CRPS improvement by statistic on the 2025–26 test, the model with against without post-NCAA data" width="760">
 </p>
 
-Every comparison is paired on the same players, scored by the log probability the model assigns to the season that happened, with a **strict control** that never sees a game dated after a player's first college season. Every season shown is out of sample: its models were trained only on earlier seasons. Rolling folds, dated cutoffs, one registered one-shot test.
+Every comparison is paired on the same players, scored by the log probability the model assigns to the season that happened, with a **strict control** that never sees a game dated after a player's first college season. Rolling folds, dated cutoffs, one registered one-shot test.
+
+> [!NOTE]
+> Every season shown is out of sample. Each row's models were trained only on seasons before the one scored, every input game was released before the forecast cutoff, and the 2025–26 comparison was registered before that season was scored.
 
 | Freshmen with international, national-team or showcase games | Gain, nats per player [95% CI] | Probability ratio | Share improved |
 |---|---|---|---|
@@ -79,6 +108,18 @@ Every comparison is paired on the same players, scored by the log probability th
 | 2025–26, registered test, two fits averaged (n 307) | **+0.39** [+0.10, +0.68] | 1.5× | 50% |
 
 The probability ratio is e^gain: the seasons that actually happened were that many times more probable, as a geometric mean over players, under the model that learned backward. Bold marks a 95% interval above zero. Each fit separately: 2022–23 +0.84 [+0.18, +1.50] and +0.86 [+0.31, +1.41]; 2025–26 +0.26 [−0.12, +0.64] for the registered primary fit and +0.52 [+0.16, +0.88] for the replication fit. The held-out cohorts are players with international or national-team games; the test cohort also counts the 23 freshmen whose only tracked games are US showcases. On the test, the continuous ranked probability score (CRPS) improves by 6–8% for season minutes, points, rebounds and assists (right panel).
+
+<details>
+<summary><b>Terms used on this page</b></summary>
+
+- **Log score, in nats.** The log of the probability a model gave to the season that actually happened. A gain of +1 nat per player means the actual seasons were e ≈ 2.7 times more probable, on average.
+- **Probability ratio.** e^gain: the geometric mean, over players, of how many times more probable the actual season was under the full model than under the control.
+- **CRPS.** The continuous ranked probability score: the expected distance between a forecast distribution and the value that happened, in the statistic's own units; lower is better. Skill is the share of the control's CRPS that the full model removes.
+- **Strict control.** The same model trained without any game dated after a player's first college season, so it never learns from later careers.
+- **Held-out season.** A season scored once, by models trained only on earlier seasons. The **registered test**, 2025–26, had its comparison and metrics written down before it was scored.
+- **Fit.** One training run with one random seed. 2022–23 and 2025–26 were each fitted twice; the rows above average the two.
+
+</details>
 
 ### Things the abstract had no room for
 
@@ -111,7 +152,14 @@ There is a formal version of this. Projecting the fitted model onto standardized
 
 ## What it does not claim
 
-- **Reverse history is not a new idea; the controlled test is the contribution.** Translating performance across leagues has a literature (Glazer's G League-to-NBA translation factors by matching and difference-in-differences; Penner's 22,500 players across 110 leagues; Held's freshman-impact poster), and practitioners already publish international recruit models: Kalinowski's Recruit Points, The Resource Nexus translation model, and QuantCat's description of comparing a prospect with former NCAA players of similar overseas dominance and consulting their college outcomes. Those are method descriptions, not validated benchmarks. What this project adds is a shared-parameter mechanism tested under a strict control, dated cutoffs and a registered one-shot season, with the gain decomposed by target and cohort.
+**Reverse history is not a new idea; the controlled test is the contribution.**
+
+| | Prior work | This project |
+|---|---|---|
+| **Translating across leagues** | Glazer's G League-to-NBA translation factors (matching and difference-in-differences); Penner's 22,500 players across 110 leagues | Translation learned inside one network, from former players measured on both sides of the gap |
+| **Recruiting international players** | Practitioner models: Kalinowski's Recruit Points, The Resource Nexus, QuantCat (a prospect compared with former NCAA players of similar overseas dominance); Held's freshman-impact poster | A forecast of the whole first season as a probability distribution |
+| **Validation** | The practitioner models are published as method descriptions, not validated benchmarks | A strict control, dated cutoffs and a registered one-shot test season, with the gain decomposed by target and cohort |
+
 - **Later careers alone cannot identify the forward mapping.** Professionals and incoming recruits differ in age, selection, role and competition. Signed time and age let the model represent those differences; they do not erase them, which is why forward labels and forward validation stay essential and why a zero-weight comparator is always run.
 - **Opportunity is the hard part.** A freshman's minutes depend on a roster that is only partly known before arrival. Prior team ratings and returning-production shares describe the destination; they do not allocate its minutes. That is why the exhibits show efficiencies, and why minutes forecasts carry wide intervals.
 - **A probabilistic output is not automatically calibrated.** Interval coverage and the calibration of the rotation probabilities are empirical checks, still being run, not consequences of the model's form.
@@ -121,26 +169,38 @@ There is a formal version of this. Projecting the fitted model onto standardized
 
 The prospective cohort is every 2026–27 freshman in his first NCAA roster season for whom the model has at least one tracked pre-college game: **282 players**, 220 of them international. By history: 141 club and national team, 47 club only, 69 national team only, 25 US showcase only. Median history: 28 tracked games; a quarter have 74 or more.
 
-All 282 were forecast and frozen on 1 October 2026 by the deployment models: trained through 2024–25 plus half of the 2025–26 players and stopped on the other half, the two halves pooled; 2,000 simulated seasons per player, once with and once without the former players' careers in training. Minutes per game are conditional on appearing. Treat the forecasts as a commitment, not a validation: the outcomes arrive in March 2027. The frozen files carry the run names and data digests.
+> [!IMPORTANT]
+> These forecasts were frozen on 1 October 2026, before the season, and will be scored when it ends in March 2027. They are a commitment, not a validation.
 
-**Most anticipated**, by probability of a 400-minute rotation season:
+All 282 were forecast by the deployment models: trained through 2024–25 plus half of the 2025–26 players and stopped on the other half, the two halves pooled; 2,000 simulated seasons per player, once with and once without the former players' careers in training. Minutes per game are conditional on appearing. The frozen files carry the run names and data digests.
 
-| Player | Team | History | Tracked games | 247 rank | P(400+ min) with / without | Min/game if plays | PER with / without |
-|---|---|---|---|---|---|---|---|
-| Caleb Holt | Arizona | national only | 22 | 4 | 1.00 / 0.98 | 30.1 | 21.8 / 19.2 |
-| Tyran Stokes | Kansas | national only | 23 | 1 | 0.99 / 0.99 | 32.3 | 24.4 / 23.5 |
-| Jordan Smith, Jr. | Arkansas | national only | 16 | 3 | 0.99 / 0.98 | 30.2 | 19.8 / 18.9 |
-| Brandon McCoy, Jr.† | Michigan | national only | 22 | 14 | 0.98 / 0.99 | 27.5 | 18.8 / 17.3 |
-| Christian Collins | USC | showcase only | 3 | 6 | 0.97 / 0.97 | 29.4 | 20.8 / 19.5 |
-| J.J. Andrews | Arkansas | showcase only | 2 | 16 | 0.95 / 0.92 | 26.2 | 19.1 / 17.7 |
-| Bruce Branch III | Brigham Young | national only | 8 | 8 | 0.95 / 0.87 | 25.8 | 20.2 / 18.5 |
-| Aurele Brena-Chemille | San Jose State | club + national | 177 | — | 0.94 / 0.32 | 26.9 | 15.1 / 11.2 |
-| Taylen Kinney | Kansas | club + national | 8 | 18 | 0.93 / 0.91 | 24.7 | 12.8 / 12.2 |
-| Caleb Gaskins | Miami (FL) | national only | 6 | 13 | 0.91 / 0.76 | 24.6 | 17.5 / 15.0 |
-| Anthony Thompson | Ohio State | showcase only | 1 | 9 | 0.91 / 0.90 | 26.2 | 18.8 / 17.9 |
-| Marcus Spears, Jr. | Texas | national only | 6 | 7 | 0.88 / 0.79 | 24.0 | 21.3 / 19.8 |
+<p align="center">
+  <img src="assets/fig_forecast_2027_dark.png" alt="2026–27 forecasts for fourteen high-profile international freshmen: chance of a 400-minute season, season minutes and PER, with and without the post-NCAA data" width="860">
+</p>
 
-— not ranked by the 247Sports composite. † Reported to miss 2026–27 with an ACL injury; injuries are not an input, so every forecast is conditional on the player being available.
+**High-profile international freshmen.** For the best-known arrivals the careers make the model more cautious about an immediate rotation role (Boumtje-Boumtje at Duke 0.95 → 0.83, Kusturica at UCLA 0.88 → 0.76) and slightly more hopeful for two Slovenians the control had written off (Tonejc at Rutgers and Morano Mahmutovic at Syracuse, from near zero to 0.07–0.08).
+
+<details>
+<summary><b>The numbers behind the figure</b></summary>
+
+| Player | Team | Nationality | Tracked games | P(400+ min) with / without | Min/game if plays | PER with / without |
+|---|---|---|---|---|---|---|
+| Joaquim Boumtje-Boumtje | Duke | Spain / United States | 43 | 0.83 / 0.95 | 19.8 | 20.1 / 23.8 |
+| Nikola Kusturica | UCLA | Serbia | 48 | 0.76 / 0.88 | 18.0 | 17.8 / 20.4 |
+| Kaan Onat | Tennessee-Martin | Turkiye | 59 | 0.65 / 0.81 | 20.0 | 13.7 / 12.6 |
+| Miikka Muurinen | Arkansas | Finland | 41 | 0.43 / 0.51 | 13.8 | 15.0 / 15.9 |
+| Milos Sojic | TCU | Serbia | 37 | 0.29 / 0.28 | 11.5 | 13.3 / 12.8 |
+| Luigi Suigo | Villanova | Italy | 74 | 0.27 / 0.31 | 12.0 | 14.7 / 15.6 |
+| Vuk Lazarevic | Ohio State | Serbia | 2 | 0.12 / 0.10 | 8.2 | 12.7 / 15.1 |
+| Arturas Butajevas | Florida | Lithuania | 50 | 0.10 / 0.19 | 7.8 | 12.7 / 12.8 |
+| Marcus Moller | Michigan | Denmark | 35 | 0.08 / 0.10 | 7.7 | 12.3 / 13.5 |
+| Martin Tonejc | Rutgers | Slovenia | 23 | 0.08 / 0.00 | 8.1 | 8.6 / 5.6 |
+| Mark Morano Mahmutovic | Syracuse | Slovenia | 68 | 0.07 / 0.00 | 7.8 | 9.2 / 7.5 |
+| Gunars Grinvalds | UCLA | Latvia | 47 | 0.07 / 0.03 | 7.1 | 9.2 / 8.1 |
+| Stefan Plisnic | VCU | Serbia | 49 | 0.06 / 0.06 | 7.6 | 11.1 / 10.5 |
+| Lazar Stojkovic | St. John's | Serbia | 36 | 0.06 / 0.13 | 7.0 | 10.8 / 11.9 |
+
+</details>
 
 **Where the former players' careers change the forecast most.** Across the cohort the two models agree about the typical player (mean P(400+ min) 0.275 with the careers against 0.267 without; international group mean PER 11.0 against 10.7). They disagree sharply about individuals, and the disagreements cluster where the backward task has the most to say: players with long club histories heading to mid-majors.
 
@@ -188,7 +248,7 @@ The reference tower has 57,363 parameters and trains in about fourteen minutes a
 | `fpp/experiments` | Training and scoring of one arm on one fold, fold reports, intercept-only recovery |
 | `tests/` | 197 tests: likelihood identities, cutoff and leakage guards, strict-control masks, weighting, cross-stopping, every architecture option reproducing the registered model by default |
 | `config/protocol.json` | The calendar, cutoffs, fold layout and numerical tolerances the code enforces. Its arm letters and four-year reconstruction horizon are the original design; the recipe actually compared (the full model against the strict control, every later season, two fits) is fixed in `TEST_REGISTRATION_2026.md` in the release |
-| `replication/` | Frozen scoring scripts, the NCAA team totals and PER constants they read, the abstract source and its figure scripts, and the archive checksums |
+| `replication/` | Frozen scoring scripts, the NCAA team totals and PER constants they read, the abstract source and its figure scripts, the script behind the 2026–27 figure above, and the archive checksums |
 | `data/` | The 2026–27 forecast cohort |
 | `assets/` | The figures shown here |
 
@@ -264,6 +324,9 @@ fpp train --tables cache/tables_v7 --fold 2023 --arm A --exclude-post-first-seas
 # 5. The abstract's evidence figure, from the per-unit CRPS files in docs/ (needs matplotlib)
 python -m pip install matplotlib
 (cd replication/abstract && python3 make_evidence_crps_figure.py --docs ../../docs --show-training)
+
+# 6. The 2026–27 figure on this page, from the frozen forecast files
+python3 replication/readme/make_forecast_figure.py --docs docs --out out
 ```
 
 What to expect (the registered values; Monte Carlo steps reproduce to the precision of their draws):
@@ -284,3 +347,18 @@ The figure's rows average the two fits of a season player by player (`replicatio
 
 Aaron John Danielson (Department of Computer Science, The University of Texas at Austin), Denis Beausoleil, Hasan Alanam.
 Contact: aaron.danielson@austin.utexas.edu
+
+<details>
+<summary><b>How to cite</b></summary>
+
+```bibtex
+@misc{danielson2026futureprovespast,
+  title        = {Future Proves Past: Learning Backward to Forecast International {NCAA} Recruits},
+  author       = {Danielson, Aaron John and Beausoleil, Denis and Alanam, Hasan},
+  year         = {2026},
+  howpublished = {\url{https://github.com/aaronjdanielson/future_proves_past}},
+  note         = {Code, data and saved models}
+}
+```
+
+</details>
