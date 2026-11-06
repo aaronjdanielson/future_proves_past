@@ -95,6 +95,19 @@ def _paired(delta: np.ndarray, masks: dict) -> dict:
 SHOOTING = (("K2", "A2"), ("K3", "A3"), ("Kf", "Af"))
 RATE_FAMILIES = {"attempts": ("A2", "A3", "Af"), "rebounds": ("ORB", "DRB"), "assists": ("AST",), "turnovers": ("TOV",),
                  "steals_blocks": ("STL", "BLK"), "fouls": ("PF",)}
+TRUNCATED_FAMILIES = {"fouls": ProductionParameters().foul_limit_per_game}     # family -> upper cap per game (D-095)
+
+
+def truncated_nb_mean(mean, dispersion, upper) -> np.ndarray:
+    """E[Y | Y <= upper] for a negative binomial with this mean and size (vectorized; D-095), using
+    k·NB(k; r, p) = mean·NB(k − 1; r + 1, p) with p = r / (r + mean). The untruncated limit is ``mean``."""
+    from scipy.stats import nbinom
+    mean, r, upper = np.broadcast_arrays(np.asarray(mean, dtype=float), np.asarray(dispersion, dtype=float),
+                                         np.asarray(upper, dtype=float))
+    p = r / (r + mean)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out = mean * nbinom.cdf(upper - 1, r + 1, p) / nbinom.cdf(upper, r, p)
+    return np.where(mean == 0, 0.0, out)
 
 
 def component_diagnostics(lik, examples, model, params_all, units, masks, *, batch_size: int, min_minutes: float = 40.0,
@@ -179,12 +192,24 @@ def component_diagnostics(lik, examples, model, params_all, units, masks, *, bat
             mk = enough & (np.ones(len(obs), bool) if name == "all" else masks[name])
             if not mk.any():
                 continue
-            rates[f"{fam}:{name}"] = {"n": int(mk.sum()), "denominator": "per 40 recorded minutes",
-                                      "observed_per40_mean": float((obs[mk] / exposure[mk]).mean()),
-                                      "predicted_per40_mean": float(pred[mk].mean()),
-                                      "mae_per40": float(np.abs(obs[mk] / exposure[mk] - pred[mk]).mean()),
-                                      "conditional_count_mae_exact": float(np.abs(obs[mk] - pred[mk] * exact_exposure[mk]).mean()),
-                                      "conditional_count_mae_plugin_recorded_minutes": float(np.abs(obs[mk] - pred[mk] * exposure[mk]).mean())}
+            entry = {"n": int(mk.sum()), "denominator": "per 40 recorded minutes",
+                     "observed_per40_mean": float((obs[mk] / exposure[mk]).mean()),
+                     "predicted_per40_mean": float(pred[mk].mean()),
+                     "mae_per40": float(np.abs(obs[mk] / exposure[mk] - pred[mk]).mean()),
+                     "conditional_count_mae_exact": float(np.abs(obs[mk] - pred[mk] * exact_exposure[mk]).mean()),
+                     "conditional_count_mae_plugin_recorded_minutes": float(np.abs(obs[mk] - pred[mk] * exposure[mk]).mean())}
+            if fam in TRUNCATED_FAMILIES:
+                # D-095: fouls are upper-truncated at foul_limit_per_game × games, so rate × exposure is not their mean and
+                # the "exact" label does not hold. The truncated mean at the expected exposure is reported instead, as a
+                # plug-in (the exact value would integrate the truncated mean over latent minutes and overtime).
+                (rate_name,) = names
+                cap = TRUNCATED_FAMILIES[fam] * units["games_played"].values.astype(float)
+                disp = params_all["dispersions"][:, rate_index[rate_name]]
+                trunc = truncated_nb_mean(pred * exact_exposure, disp, cap)
+                entry["conditional_count_mae_exact"] = None
+                entry["conditional_count_mae_truncated_plugin"] = float(np.abs(obs[mk] - trunc[mk]).mean())
+                entry["truncation_cap_per_game"] = TRUNCATED_FAMILIES[fam]
+            rates[f"{fam}:{name}"] = entry
     ast, tov = counts[:, idx["AST"]], counts[:, idx["TOV"]]
     p_ast, p_tov = params_all["rates"][:, rate_index["AST"]] * exact_exposure, params_all["rates"][:, rate_index["TOV"]] * exact_exposure
     ratio = {}
@@ -228,15 +253,42 @@ def normalizer_exclusion(run_payload: dict, run_dir=None) -> bool:
     return False
 
 
-def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None):
+def row_guard(run_payload: dict) -> bool:
+    """Which row policy a run was trained under (D-095). Manifests written after the fix record ``config["row_guard"]``;
+    earlier runs were trained with unresolved competition periods still in forward histories, normalization and the
+    pool, so they are rebuilt that way."""
+    return bool(run_payload.get("config", {}).get("row_guard", False))
+
+
+REBUILD_LOG_TOLERANCE = 1e-4     # D-095: rebuilt vs run scores, nats per unit (largest gap seen across saved reports: 5.2e-6)
+
+
+def check_tables(run_payload: dict, tab: dict, *, allow_mismatch: bool = False) -> dict:
+    """The tables a run is rebuilt on must be the tables it was trained on (D-095): their manifest payload digest must
+    equal the one the run recorded. Older manifests without a recorded digest are reported as unverified."""
+    recorded = (run_payload.get("config", {}).get("tables_manifest") or {}).get("payload_sha256")
+    supplied = tab["manifest"].get("payload_sha256")
+    status = {"run_tables_sha256": recorded, "supplied_tables_sha256": supplied,
+              "match": None if recorded is None else recorded == supplied, "mismatch_allowed": bool(allow_mismatch)}
+    if status["match"] is False and not allow_mismatch:
+        raise ValueError(f"Tables digest {str(supplied)[:12]}… differs from the run's training tables {str(recorded)[:12]}…; "
+                         "rebuilding would refit vocabularies and normalization on different data (pass allow_table_mismatch to override)")
+    return status
+
+
+def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None, *, allow_table_mismatch: bool = True):
+    from .train import protocol_test_season
     tab = read_tables(tables_dir)
+    tab["tables_check"] = check_tables(run_payload, tab, allow_mismatch=allow_table_mismatch)
     units = tab["units"]
-    protocol_test = int(units["season"].max())
-    test_players = frozenset(units.loc[(units["season"] == protocol_test) & units["intl_entrant"], "player_id"])
-    dobs = F.player_dobs(tab)
     cfg = run_payload["config"]
+    # D-095: the registered test season (as the run recorded it), not the supplied tables' last season.
+    protocol_test = int(cfg.get("protocol_test_season", protocol_test_season()))
+    test_players = (frozenset() if cfg.get("deploy") else
+                    frozenset(units.loc[(units["season"] == protocol_test) & units["intl_entrant"], "player_id"]))
+    dobs = F.player_dobs(tab)
     fs = F.schema_from_config(cfg, units)                        # the run's feature schema (D-065)
-    store = F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs)
+    store = F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs, row_guard=row_guard(run_payload))
     fold_season = int(run_payload["fold"])
     fold = Fold(fold_season, "development" if fold_season <= 2023 else "selection")
     rw = cfg.get("reconstruction_windows") or {}
@@ -261,11 +313,11 @@ def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None):
 
 
 def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: int = 100, n_rescore: int = 25,
-               batch_size: int = 256, seed: int = 20260901) -> dict:
+               batch_size: int = 256, seed: int = 20260901, allow_table_mismatch: bool = False) -> dict:
     run = Path(run)
     payload = load_manifest(run / "run.json")
     per_unit = pd.read_csv(run / "per_unit.csv")
-    tab, ds, model = _rebuild(payload, tables, run)
+    tab, ds, model = _rebuild(payload, tables, run, allow_table_mismatch=allow_table_mismatch)
     state = torch.load(run / "tower_state.pt", weights_only=True)
     model.load_state_dict(state)
     model.eval()
@@ -306,7 +358,16 @@ def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: i
     # predate the marginal score definition stored the conditioned score, so the check is against that.
     run_nll = per_unit["nll_tower"].values
     run_was_conditioned = "nll_tower_conditioned_overtime" not in per_unit
-    rebuild_gap = float(np.abs((nll_conditioned if run_was_conditioned else nll)[finite] - run_nll[finite]).max())
+    rebuilt = nll_conditioned if run_was_conditioned else nll
+    # D-095: every unit is checked; a unit finite on one side only is an unbounded gap, and a gap beyond the
+    # registered tolerance stops the report (the rebuild is not the model that was scored).
+    same_finiteness = np.isfinite(rebuilt) == np.isfinite(run_nll)
+    both = np.isfinite(rebuilt) & np.isfinite(run_nll)
+    rebuild_gap = (math.inf if not same_finiteness.all() else
+                   float(np.abs(rebuilt[both] - run_nll[both]).max()) if both.any() else 0.0)
+    if rebuild_gap > REBUILD_LOG_TOLERANCE and not allow_table_mismatch:
+        raise RuntimeError(f"Rebuilt scores differ from the run's by {rebuild_gap:.3g} nats (tolerance {REBUILD_LOG_TOLERANCE:g}); "
+                           f"tables check: {tab['tables_check']}")
     parts_sum = comps["participation"] + comps["games_given_participation"] + comps["starts"] + comps["rest"]
     sum_check = float(np.abs(parts_sum[finite] - comps["total"][finite]).max())
     assumed = (units["evidence"].astype("string") == ASSUMED_ZERO).to_numpy(dtype=bool, na_value=False)
@@ -334,7 +395,7 @@ def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: i
         other_payload = load_manifest(compare / "run.json")
         if int(other_payload["fold"]) != int(payload["fold"]) or int(other_payload["seed"]) != int(payload["seed"]):
             raise ValueError("The comparison run must share the fold and seed (same evaluation examples and normalizer)")
-        _, ds_other, other_model = _rebuild(other_payload, tables, compare)
+        _, ds_other, other_model = _rebuild(other_payload, tables, compare, allow_table_mismatch=allow_table_mismatch)
         # The comparison checkpoint is scored on inputs built with ITS OWN normalizer and vocabularies
         # (preprocessing is part of the model), on the same units, aligned by unit id (D-034 addendum).
         other_examples = ds_other.evaluation_examples()
@@ -479,6 +540,8 @@ def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: i
                   "evaluation": {name: int(masks[name].sum()) for name in STRATA} | {"all": int(len(units))}}
     games_cols = set(tab["games"].columns)
     reproducibility = {"tables": str(tables), "tables_manifest_sha256": tab["manifest"].get("payload_sha256"),
+                       "tables_check": tab["tables_check"], "row_guard": row_guard(payload),
+                       "rebuild_log_tolerance": REBUILD_LOG_TOLERANCE,
                        "table_digests": {k: v["sha256"] for k, v in tab["manifest"]["tables"].items()},
                        "checkpoint_sha256": file_sha256(run / "tower_state.pt"), "config": payload["config"],
                        "seed": payload["seed"], "arm": payload["arm"], "model": payload.get("model", "tower"),

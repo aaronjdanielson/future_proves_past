@@ -237,21 +237,39 @@ def _score(likelihood, examples, *, batch_size: int, tower=None, params=None, ma
 
 def score_checked(examples, *, batch_size: int, nodes: int, tolerance: float, kernel=None, tower=None, params=None,
                   max_nodes: int = 256, marginal: bool = True) -> tuple[np.ndarray, dict]:
-    """Score at ``nodes`` and verify against twice the nodes; double until the registered
-    quadrature tolerance holds or the node budget is exhausted (then fail loudly)."""
+    """Score at ``nodes`` and verify against twice the nodes on every row; double until the registered
+    quadrature tolerance holds or the node budget is exhausted (then fail loudly).
+
+    D-095: no row leaves the check. A NaN or negative-infinite score is a numerical failure and raises with the unit
+    ids. A row finite at one resolution and not the other is an unbounded quadrature gap. A positive-infinite score at
+    both resolutions (the observed season given zero probability) is a valid, maximally bad score: it is returned, not
+    dropped, and its units are recorded."""
+    ids = [getattr(e, "unit_id", i) for i, e in enumerate(examples)]
     n = nodes
     while True:
         lik_a = DifferentiableSeasonLikelihood(None, kernel=kernel, quadrature_nodes=n)
         lik_b = DifferentiableSeasonLikelihood(None, kernel=kernel, quadrature_nodes=2 * n)
-        a = _score(lik_a, examples, batch_size=batch_size, tower=tower, params=params, marginal=marginal)
-        b = _score(lik_b, examples, batch_size=batch_size, tower=tower, params=params, marginal=marginal)
+        a = np.asarray(_score(lik_a, examples, batch_size=batch_size, tower=tower, params=params, marginal=marginal), dtype=float)
+        b = np.asarray(_score(lik_b, examples, batch_size=batch_size, tower=tower, params=params, marginal=marginal), dtype=float)
+        invalid = np.isnan(a) | np.isnan(b) | np.isneginf(a) | np.isneginf(b)
+        if invalid.any():
+            bad = [ids[i] for i in np.flatnonzero(invalid)]
+            raise RuntimeError(f"{len(bad)} invalid scores (NaN or -inf) at {n}/{2 * n} nodes; units {bad[:10]}")
+        mismatch = np.isfinite(a) != np.isfinite(b)
         finite = np.isfinite(a) & np.isfinite(b)
-        gap = float(np.abs(a[finite] - b[finite]).max()) if finite.any() else 0.0
+        if mismatch.any():
+            gap = math.inf
+        else:
+            gap = float(np.abs(a[finite] - b[finite]).max()) if finite.any() else 0.0
         if gap <= tolerance:
+            infinite = [ids[i] for i in np.flatnonzero(np.isposinf(b))]
             return b, {"nodes": 2 * n, "checked_against": n, "max_abs_gap": gap, "within_tolerance": True,
+                       "rows_checked": int(len(b)), "infinite_scores": len(infinite), "infinite_units": infinite[:50],
                        "overtime": "marginalized" if marginal else "conditioned_on_observed"}
         if 2 * n >= max_nodes:
-            raise RuntimeError(f"Quadrature gap {gap:.3g} exceeds tolerance {tolerance:g} at {2 * n} nodes")
+            detail = (f"; finiteness differs between resolutions for units {[ids[i] for i in np.flatnonzero(mismatch)][:10]}"
+                      if mismatch.any() else "")
+            raise RuntimeError(f"Quadrature gap {gap:.3g} exceeds tolerance {tolerance:g} at {2 * n} nodes{detail}")
         n *= 2
 
 
@@ -269,6 +287,15 @@ def fit_baseline(likelihood, examples, *, batch_limit: int, seed: int, max_iter:
     return result
 
 
+PROTOCOL_PATH = Path(__file__).resolve().parents[2] / "config" / "protocol.json"
+
+
+def protocol_test_season() -> int:
+    """The registered one-shot test season, ``experiment.test_season`` in config/protocol.json (D-095). It used to be
+    inferred as the tables' last season, which would move as soon as tables carrying a later season are built."""
+    return int(json.loads(PROTOCOL_PATH.read_text())["experiment"]["test_season"])
+
+
 def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, epochs: int = 20, batch_size: int = 256,
             lr: float = 1e-3, patience: int = 3, nodes_train: int = 24, nodes_eval: int = 32,
             max_train_units: int | None = None, baseline_rows: int = 5000, baseline_iter: int = 60,
@@ -282,7 +309,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             feature_schema: str = "auto", feature_blocks=None, cross_stop: int | None = None,
             width: int = 32, hidden: int = 64, direction_film: bool = False, future_weight: float = 0.0,
             game_dropout: float = 0.0, average_last: int = 1,
-            head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0) -> dict:
+            head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0,
+            row_guard: bool = True, test_season: int | None = None) -> dict:
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {sorted(ARMS)}; D (C plus forward fine-tuning) is not implemented")
     if cross_stop not in (None, 0, 1):
@@ -311,7 +339,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     t0 = time.time()
     tab = read_tables(tables)
     units = tab["units"]
-    protocol_test = int(units["season"].max())
+    protocol_test = protocol_test_season() if test_season is None else int(test_season)
     if deploy:
         # Deployment (D-051): train through protocol_test - 1, early-stop on protocol_test, no evaluation season. Only
         # after the one-shot test is complete; nothing is scored, so nothing needs protecting.
@@ -330,7 +358,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     dobs = F.player_dobs(tab)
     # Feature schema (D-065): "auto" reproduces the pre-D-065 rule (v8 iff the tables carry recruit_status); v9 adds blocks.
     fs = F.resolve_schema(feature_schema, feature_blocks, units)
-    store = F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs)
+    store = F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs, row_guard=row_guard)
     n_fields, n_static = len(fs.field_names), len(fs.static_continuous)
     fold = Fold(fold_season, "deployment" if deploy else "development" if fold_season <= 2023 else "selection" if fold_season < protocol_test else "test")
     ds = FoldDataset.build(tab, fold, store, test_cohort_players=test_players, index=player_index(tab["games"]), seed=seed,
@@ -358,7 +386,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             raise RuntimeError("Strict control requested but no game rows are excluded")
     if future_weight > 0:
         # D-070: the auxiliary "future" target (later professional production) for training units; never for held-out players.
-        ds = dataclasses.replace(ds, future=future_targets(tab, fold, ds.train_units, ds.heldout | stop_players))
+        ds = dataclasses.replace(ds, future=future_targets(tab, fold, ds.train_units, ds.heldout | stop_players, row_guard=row_guard))
     train, stop = _examples_by_season(ds, train_max_season=fold_season - 2, stop_season=fold_season - 1, use_windows=(arm in RECON_ARMS),
                                       stop_players=None if cross_stop is None else stop_players)
     recon_holdout, recon_test = None, []
@@ -403,7 +431,6 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     if arm in PRETRAIN_ARMS:
         # One seed-matched pool checkpoint per fold, built once and reused by B, C, and C_shuf (D-032).
         from ..model.pool import CONTEXT_FIELDS
-        from ..model.tower import OutcomeHeads
         tower = ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_context=len(CONTEXT_FIELDS),
                                n_fields=n_fields, n_static=n_static, width=width, hidden=hidden, direction_film=direction_film,
                                future_head=future_weight > 0, head_hidden=head_hidden, attention_pool=attention_pool)
@@ -417,7 +444,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                                        heldout=ds.heldout, seed=seed, epochs=pretrain_epochs, examples_per_epoch=pretrain_examples,
                                        batch_size=batch_size, lr=lr, nodes=nodes_train, out_path=ckpt, excluded_rows=ds.excluded_rows)
         tower.load_state_dict(torch.load(ckpt, weights_only=True))
-        tower.heads = OutcomeHeads(base_model.reference())     # forward heads start at the fitted intercepts, as in A
+        tower.reset_heads(base_model.reference())     # forward heads start at the fitted intercepts, as in A, same architecture (D-095)
     else:
         tower = (ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static, width=width, hidden=hidden,
                                 direction_film=direction_film, future_head=future_weight > 0, head_hidden=head_hidden,
@@ -564,17 +591,22 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                                  evaluate, batch_size=batch_size, tower=tower)
         probe_finite = np.isfinite(nll_tower) & np.isfinite(nll_tower_probe)
         kernel_sensitivity = {"kernel": probe_kernel.registration_id, "sd_multiple": probe_kernel.sd_multiple,
+                              "normalized": False,
+                              "reading": ("numerical probe, not a likelihood: the widened cells overlap, so the probe's mass over "
+                                          "recorded totals exceeds one and its gap is not a comparison of distributions (D-095)"),
                               "mean_abs_gap": float(np.abs(nll_tower - nll_tower_probe)[probe_finite].mean()),
                               "max_abs_gap": float(np.abs(nll_tower - nll_tower_probe)[probe_finite].max()),
                               "mean_gap_probe_minus_once": float((nll_tower_probe - nll_tower)[probe_finite].mean())}
         masks = cohort_masks(ds.eval_units)
+        # D-095: every evaluation unit enters the summaries; an infinite score (zero probability for the observed
+        # season) makes its means infinite instead of silently leaving the comparison.
         finite = np.isfinite(nll_tower) & np.isfinite(nll_base)
         summary = {}
         for name in ["all"] + STRATA:
-            m = finite if name == "all" else finite & masks[name]
+            m = np.ones(len(nll_tower), dtype=bool) if name == "all" else masks[name]
             n = int(m.sum())
             diff = nll_base[m] - nll_tower[m]
-            summary[name] = {"n": n, "nll_tower": float(nll_tower[m].mean()) if n else None,
+            summary[name] = {"n": n, "nonfinite": int((m & ~finite).sum()), "nll_tower": float(nll_tower[m].mean()) if n else None,
                              "nll_baseline": float(nll_base[m].mean()) if n else None,
                              "gain_vs_baseline": float(diff.mean()) if n else None,
                              "gain_se": float(diff.std(ddof=1) / math.sqrt(n)) if n > 1 else None}
@@ -625,6 +657,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                                               if exclude_post_first_season_logs else "included"),
                    "excluded_game_rows": int(ds.excluded_rows.sum()) if ds.excluded_rows is not None else 0,
                    "normalizer_exclusion": True,     # D-072/D-078: the normalization statistics exclude the same rows as the inputs
+                   "row_guard": bool(row_guard),     # D-095: unresolved competition periods excluded from every store consumer
+                   "protocol_test_season": protocol_test,
                    "reconstruction_windows": {"max_years": recon_max_years, "k_values": [k for k in recon_k],
                                               "horizon": "training cutoff" if recon_max_years is None else f"{recon_max_years} years after the season end",
                                               "windows": int(len(ds.windows)), "units": int(ds.windows["unit_id"].nunique()) if len(ds.windows) else 0},

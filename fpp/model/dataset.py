@@ -85,6 +85,7 @@ class FoldDataset:
         cutoff = _days(fold.training_cutoff)
         # Normalizer on training games only: released by the training cutoff, players not held out.
         allowed = (store.release <= cutoff) & ~np.isin(store.player_id, np.fromiter(m["heldout_players"], dtype=np.int64))
+        allowed &= store.eligible()       # D-095: the store's row policy (all rows for stores built without one)
         if excluded is not None and normalizer_exclusion:
             allowed &= ~excluded          # D-072: the strict control's normalization statistics exclude the same rows as its inputs
         rows = np.flatnonzero(allowed)
@@ -139,11 +140,14 @@ class FoldDataset:
             for j, window in enumerate(wins.itertuples(index=False)):
                 i = unit_pos[window.unit_id]
                 unit = units.iloc[i]
-                _, ncaa = self._channels(unit, _days(unit.forecast_cutoff))
+                unit_cutoff = _days(unit.forecast_cutoff)
+                _, ncaa = self._channels(unit, unit_cutoff)
                 intl = self._window_rows(unit, window)
+                # The source window is dated at the training cutoff; the prior-NCAA context stays frozen at the
+                # target's forecast cutoff (D-095), so it matches the unit's forward example exactly.
                 recon.append(F.build_example(unit, store=self.store, normalizer=self.normalizer, static=z[i], static_mask=mask[i],
                                              static_cats=cats[i], intl_rows=intl, ncaa_rows=ncaa, cutoff_days=cutoff,
-                                             direction="+", k=window.k, weight=float(w_recon[j])))
+                                             direction="+", k=window.k, weight=float(w_recon[j]), ncaa_cutoff_days=unit_cutoff))
         if self.future is not None and len(self.future):
             for e in forward + recon:
                 v = self.future.get(e.unit_id, np.nan)
@@ -163,7 +167,8 @@ class FoldDataset:
         return out
 
 
-def future_targets(tables: dict, fold: Fold, units: pd.DataFrame, heldout_players, *, min_games: int = 10) -> pd.Series:
+def future_targets(tables: dict, fold: Fold, units: pd.DataFrame, heldout_players, *, min_games: int = 10,
+                   row_guard: bool = False) -> pd.Series:
     """D-070 auxiliary target per training unit: the player's later professional production, points + rebounds +
     assists per 40 minutes over his international club games after his last NCAA season that were released by the
     fold's training cutoff (at least ``min_games``), standardized over the training units that have one. Held-out players
@@ -172,6 +177,9 @@ def future_targets(tables: dict, fold: Fold, units: pd.DataFrame, heldout_player
     last_end = pd.to_datetime(tables["units"].groupby("player_id")["period_end"].max())
     g = tables["games"]
     g = g[(g["source"] == "intl") & g["player_id"].isin(units["player_id"]) & ~g["player_id"].isin(set(int(p) for p in heldout_players))]
+    if row_guard and "season_guard" in g:      # D-095: the same row policy as the game store
+        from ..data.folds import UNRESOLVED_GUARD
+        g = g[g["season_guard"] != UNRESOLVED_GUARD]
     g = g[pd.to_datetime(g["release_date"]) <= fold.training_cutoff]
     g = g.merge(last_end.rename("last_end"), left_on="player_id", right_index=True)
     g = g[pd.to_datetime(g["date"]) > g["last_end"]]

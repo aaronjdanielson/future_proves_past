@@ -488,7 +488,11 @@ class DifferentiableSeasonLikelihood:
 
     def latent_minutes_given_opportunity(self, batch: SeasonBatch, params: dict | None = None) -> torch.Tensor:
         """$E[M^\\ast \\mid G, J, M, x]$: latent minutes integrated over the recording cell and the overtime
-        sum with production excluded from the weights (D-033). Zero-game rows return zero."""
+        sum with production excluded from the weights (D-033). Zero-game rows return zero.
+
+        Both sums stop under their own relative bound (the numerator's uses the first-moment tail, D-095), each at most
+        the registered overtime tolerance, so the log of the returned ratio is within twice that tolerance of the
+        exact conditional mean (quadrature error aside)."""
         opp = self.log_prob(batch, params=params, production=False)[0]
         moment = self.log_prob(batch, params=params, production=False, moment=True)[0]
         expected = torch.exp(moment - opp)
@@ -575,8 +579,18 @@ class DifferentiableSeasonLikelihood:
                 continue
             with torch.no_grad():
                 cidx = idx[check]
-                sub_tails = torch.tensor([poisson_log_tail_upper_bound(o, mu) for mu in mean[cidx].tolist()], dtype=DTYPE)
-                sub_bound = torch.logaddexp(torch.zeros_like(sub_tails), sub_tails - log_total[cidx].detach())
+                mus = mean[cidx].tolist()
+                sub_tails = torch.tensor([poisson_log_tail_upper_bound(o, mu) for mu in mus], dtype=DTYPE)   # log Pr(O > o)
+                omitted = sub_tails
+                if moment:
+                    # D-095: a moment term is Pois(o') × maximum(o') × E[u | ...] with maximum(o') = L g + t o' > 1, so the
+                    # probability tail does not bound the omitted numerator. With E[u | ...] <= 1 and o' Pois(o'; mu) =
+                    # mu Pois(o' - 1; mu): omitted <= L g Pr(O > o) + t mu Pr(O >= o).
+                    ge = torch.tensor([0.0 if o == 0 else poisson_log_tail_upper_bound(o - 1, mu) for mu in mus], dtype=DTYPE)
+                    lg = torch.log(batch.games[cidx].to(DTYPE) * self.regulation())
+                    tmu = torch.log(self.overtime_minutes * mean[cidx].detach())
+                    omitted = torch.logaddexp(lg + sub_tails, tmu + ge)
+                sub_bound = torch.logaddexp(torch.zeros_like(omitted), omitted - log_total[cidx].detach())
                 converged = (sub_tails <= math.log(acc.absolute_tail_tolerance)) & (sub_bound <= acc.overtime_log_tolerance)
                 bounds[cidx], tails[cidx] = sub_bound, sub_tails
                 active[cidx[converged]] = False

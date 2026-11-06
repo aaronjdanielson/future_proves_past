@@ -286,6 +286,11 @@ class ReferenceTower(nn.Module):
         self.pretrain_head = PretrainHead(self.encoder, n_context, reference, width=width, hidden=hidden) if n_context else None
         self.future_head = nn.Linear(width, 1) if future_head else None
 
+    def reset_heads(self, reference: SeasonParameters | None = None) -> None:
+        """Fresh outcome heads at ``reference``, with this tower's recorded head architecture (width, head_hidden), so a
+        pretrained tower's forward heads match what its manifest says (D-095)."""
+        self.heads = OutcomeHeads(reference, width=self.architecture["width"], head_hidden=self.architecture["head_hidden"])
+
     def represent(self, batch: dict) -> torch.Tensor:
         h_intl = self.pool_intl(self.encoder(batch["intl"]), batch["intl"])
         h_ncaa = self.pool_ncaa(self.encoder(batch["ncaa"]), batch["ncaa"])

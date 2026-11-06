@@ -784,7 +784,33 @@ def attach_unit_blocks(units: pd.DataFrame, aux: dict) -> pd.DataFrame:
         units.loc[fill, "recruit_national_rank"] = units.loc[fill, "on3_rank"]
         stars = units["recruit_star_rating"].isna() & units["on3_stars"].notna()
         units.loc[stars, "recruit_star_rating"] = units.loc[stars, "on3_stars"]
+    hs = aux.get("hs_school")
+    if hs is not None:
+        units = attach_hs_block(units, hs, first_year_only=bool(aux.get("hs_first_year_only", False)))   # forecasts: freshmen only
     return units
+
+
+HS_UNIT_COLUMNS = ["hs_known", "hs_region", "hs_alumni_n", "hs_talent", "hs_alumni_min_share", "hs_top2_share", "hs_alumni_level"]
+
+
+def attach_hs_block(units: pd.DataFrame, hs: pd.DataFrame, first_year_only: bool = False) -> pd.DataFrame:
+    """D-091: the player's high school strength as of his first NCAA season (fpp.data.hs_schools). Every hs_* value is
+    built from alumni whose first season precedes the player's entry season, which is never after the unit's season,
+    so later units of the same player carry the same, still-dated values. Unknown school: hs_known = 0, rest NaN."""
+    units = units.drop(columns=[c for c in HS_UNIT_COLUMNS if c in units.columns])
+    cols = ["player_id", "entry_season", "hs_region", "hs_alumni_n", "hs_talent", "hs_alumni_min_share", "hs_top2_share"]
+    cols += [c for c in ("hs_alumni_level",) if c in hs.columns]          # D-093 tables (v13) carry the alumni level
+    units = units.merge(hs[cols], on="player_id", how="left")
+    late = units["entry_season"].notna() & (units["entry_season"] > units["season"])     # cannot happen; guard anyway
+    units.loc[late, cols[2:]] = np.nan
+    if first_year_only:
+        # D-093: once a player has NCAA games the high school is noise (pooled 2022-23: +0.067 for no-history freshmen,
+        # -0.125 over all units); the block applies to the first NCAA season only and is masked afterwards
+        later = ~units["first_year"].astype(bool)
+        units.loc[later, cols[2:]] = np.nan
+    units["hs_known"] = (units["hs_talent"].notna()).astype(float)
+    units["hs_region"] = units["hs_region"].astype(object)
+    return units.drop(columns=["entry_season"])
 
 
 def block_coverage(units: pd.DataFrame, games: pd.DataFrame) -> dict:

@@ -110,6 +110,9 @@ def main(argv=None) -> int:
     train.add_argument("--head-hidden", type=int, default=0, help="D-074: GELU hidden layer of this size before the outcome heads (0 = registered linear heads)")
     train.add_argument("--attention-pool", action="store_true", help="D-074: learned attention mean over the games in each channel's fusion input")
     train.add_argument("--lr-decay", type=float, default=1.0, help="D-074: multiply the learning rate by this factor at every epoch without improvement (1 = off)")
+    train.add_argument("--no-row-guard", dest="row_guard", action="store_false",
+                       help="D-095: keep the pre-D-095 rows (unresolved competition periods still reach forward histories, "
+                            "normalization and the pool); only for exact pairing with runs trained before D-095")
     train.add_argument("--deploy", action="store_true",
                        help="deployment (D-051): fold = test season + 1, train through the test season - 1, early-stop on the test season, no evaluation")
     train.add_argument("--test-registration", type=Path,
@@ -126,6 +129,8 @@ def main(argv=None) -> int:
     report.add_argument("--tables", type=Path, required=True)
     report.add_argument("--draws", type=int, default=200)
     report.add_argument("--rescore", type=int, default=25, help="units rescored with the SciPy reference: random + largest disagreements")
+    report.add_argument("--allow-table-mismatch", action="store_true",
+                        help="D-095: report on tables whose digest differs from the run's training tables (recorded in the report)")
     args = parser.parse_args(argv)
     try:
         spec = verify_specification(args.project)
@@ -185,7 +190,8 @@ def main(argv=None) -> int:
                               feature_schema=args.feature_schema, feature_blocks=blocks, cross_stop=args.cross_stop,
                               width=args.width, hidden=args.hidden, direction_film=args.direction_film, future_weight=args.future_weight,
                               game_dropout=args.game_dropout, average_last=args.average_last,
-                              head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay)
+                              head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay,
+                              row_guard=args.row_guard)
             result = {"saved": str(args.out), "arm": args.arm, "model": args.model, "fold": args.fold, "seed": args.seed,
                       "counts": payload["counts"], "training": {"epochs_run": payload["training"]["epochs_run"],
                                                                  "best_stop_nll": payload["training"]["best_stop_nll"],
@@ -193,7 +199,8 @@ def main(argv=None) -> int:
                       "evaluation": payload["evaluation"], "timing": payload["timing"]}
         elif args.command == "report-run":
             from .experiments.report import report_run
-            payload = report_run(run=args.run, tables=args.tables, compare=args.compare, draws=args.draws, n_rescore=args.rescore)
+            payload = report_run(run=args.run, tables=args.tables, compare=args.compare, draws=args.draws, n_rescore=args.rescore,
+                                 allow_table_mismatch=args.allow_table_mismatch)
             result = {"saved": str(args.run / "report.json"), "summary": payload["summary"]}
         elif args.command == "recovery":
             from .experiments.recovery import run_recovery

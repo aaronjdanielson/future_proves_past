@@ -81,7 +81,8 @@ BASE_STATIC_CONTINUOUS = [
 ]
 assert [n for n, _, _ in BASE_STATIC_CONTINUOUS] == STATIC_CONTINUOUS
 
-BLOCKS = ("prior_league", "usage", "destination", "intl_rapm", "on3")
+BLOCKS = ("prior_league", "usage", "destination", "intl_rapm", "on3", "hs", "hs_alumni")
+V9_DEFAULT_BLOCKS = ("prior_league", "usage", "destination", "intl_rapm", "on3")   # `v9` without blocks: the D-065 set; hs (D-091) is opt-in
 # Per-game fields of the optional blocks (tables v11 and later carry the columns; missing columns read as masked).
 BLOCK_GAME_FIELDS = {
     "usage": [("usage_game", "usage_game", "identity"), ("pts_share", "pts_share", "identity"), ("fga_share", "fga_share", "identity"),
@@ -105,8 +106,16 @@ BLOCK_STATIC_FIELDS = {
     "intl_rapm": [("intl_rapm_orapm", "intl_rapm_orapm", "identity"), ("intl_rapm_drapm", "intl_rapm_drapm", "identity"),
                   ("intl_rapm_poss_log", "intl_rapm_poss", "log1p"), ("intl_rapm_season_gap", "intl_rapm_season_gap", "identity")],
     "on3": [("recruit_rank_from_on3", "recruit_rank_from_on3", "identity")],
+    # D-091 (tables v12): high school strength from earlier alumni, adjusted for their NCAA teams' strength
+    "hs": [("hs_known", "hs_known", "identity"), ("hs_talent", "hs_talent", "identity"),
+           ("hs_alumni_n_log", "hs_alumni_n", "log1p"), ("hs_alumni_min_share", "hs_alumni_min_share", "identity"),
+           ("hs_top2_share", "hs_top2_share", "identity")],
+    # D-093: alumni outcomes only (user: "no school indicators, just measure of how previous attendees have done in the
+    # ncaa"): no region category and no known-school flag; an unknown school is masked like any missing input
+    "hs_alumni": [("hs_talent", "hs_talent", "identity"), ("hs_alumni_n_log", "hs_alumni_n", "log1p"),
+                  ("hs_alumni_min_share", "hs_alumni_min_share", "identity"), ("hs_alumni_level", "hs_alumni_level", "identity")],
 }
-BLOCK_STATIC_CATEGORICAL = {"prior_league": ["prior_league"]}
+BLOCK_STATIC_CATEGORICAL = {"prior_league": ["prior_league"], "hs": ["hs_region"]}
 
 
 @dataclass(frozen=True)
@@ -131,14 +140,15 @@ class FeatureSchema:
 
 
 def feature_schema(name: str = "v7", blocks=None) -> FeatureSchema:
-    """``v7`` and ``v8`` are fixed; ``v9`` takes the optional blocks (default: all of ``BLOCKS``), kept in canonical order."""
+    """``v7`` and ``v8`` are fixed; ``v9`` takes the optional blocks (default: the D-065 set ``V9_DEFAULT_BLOCKS``), kept in
+    canonical order."""
     if name in ("v7", "v8"):
         if blocks:
             raise ValueError(f"Feature schema {name} takes no blocks")
         cats = STATIC_CATEGORICAL if name == "v7" else STATIC_CATEGORICAL_V8
         chosen = ()
     elif name == "v9":
-        wanted = tuple(BLOCKS) if blocks is None else tuple(blocks)
+        wanted = tuple(V9_DEFAULT_BLOCKS) if blocks is None else tuple(blocks)
         unknown = sorted(set(wanted) - set(BLOCKS))
         if unknown:
             raise ValueError(f"Unknown feature blocks {unknown}; known: {BLOCKS}")
@@ -203,10 +213,16 @@ class GameStore:
     index: dict = field(default_factory=dict)   # player_id -> (start, stop) slice into the arrays
     schema: FeatureSchema = DEFAULT_SCHEMA      # D-065: which continuous fields ``raw`` holds
     missing_fields: tuple = ()                  # schema fields whose column the tables lack (read as masked)
+    usable: np.ndarray | None = None            # [N] bool, D-095 row policy; None = every row usable (legacy)
 
     @classmethod
     def from_frame(cls, games: pd.DataFrame, dobs: pd.Series | None = None, vocab: dict | None = None,
-                   schema: FeatureSchema | None = None) -> "GameStore":
+                   schema: FeatureSchema | None = None, row_guard: bool = False) -> "GameStore":
+        """``row_guard`` (D-095) applies the one row policy for uncertain competition periods to every consumer of
+        the store: rows whose season period the D-028 guard could not resolve leave ``rows()`` (forward and
+        forecast channels), ``eligible()`` (normalization, the pretraining pool) and, through ``player_index``,
+        the reconstruction windows. The rows stay in the arrays, so vocabularies and checkpoints are unchanged;
+        runs trained before D-095 record no guard and are rebuilt without it."""
         schema = schema or DEFAULT_SCHEMA
         g = games.sort_values(["player_id", "date", "record_id"]).reset_index(drop=True)
         n = len(g)
@@ -255,14 +271,28 @@ class GameStore:
                     release=_days(g["release_date"]), season=g["season"].values.astype(np.int32),
                     is_ncaa=(g["source"] == "ncaa").values, minutes=np.nan_to_num(g["minutes"].astype("float32").values),
                     strength=strength, record_id=g["record_id"].values, vocab=vocab, schema=schema, missing_fields=tuple(missing))
+        if row_guard:
+            from ..data.folds import UNRESOLVED_GUARD
+            guard = g["season_guard"].astype(str).values if "season_guard" in g else np.full(n, "", dtype=object)
+            store.usable = guard != UNRESOLVED_GUARD
         starts = np.flatnonzero(np.r_[True, store.player_id[1:] != store.player_id[:-1]])
         stops = np.r_[starts[1:], n]
         store.index = {int(store.player_id[s]): (int(s), int(e)) for s, e in zip(starts, stops)}
         return store
 
     def rows(self, player_id: int) -> np.ndarray:
+        """The player's usable rows, chronological (D-095: guarded rows are left out when the store has a row policy)."""
         s, e = self.index.get(int(player_id), (0, 0))
-        return np.arange(s, e)
+        r = np.arange(s, e)
+        return r if self.usable is None else r[self.usable[s:e]]
+
+    @property
+    def row_guard(self) -> bool:
+        return self.usable is not None
+
+    def eligible(self) -> np.ndarray:
+        """[N] bool: rows the row policy admits (all rows without one)."""
+        return np.ones(len(self.player_id), dtype=bool) if self.usable is None else self.usable
 
     def continuous(self, rows: np.ndarray, cutoff_days: float) -> np.ndarray:
         """Raw fields for the rows with cutoff-aware strength substitution; NaN = missing."""
@@ -461,10 +491,14 @@ class Example:
 
 def build_example(unit, *, store: GameStore, normalizer: Normalizer, static, static_mask, static_cats,
                   intl_rows: np.ndarray, ncaa_rows: np.ndarray, cutoff_days: float, direction: str,
-                  k=(), weight: float = 1.0) -> Example:
+                  k=(), weight: float = 1.0, ncaa_cutoff_days: float | None = None) -> Example:
+    """``cutoff_days`` dates the source channel's context; ``ncaa_cutoff_days`` (default: the same) dates the prior-NCAA
+    channel's. A reconstruction example passes the target's forecast cutoff there, so its prior-NCAA context stays
+    frozen at the target forecast date, identical to the forward example of the same unit (D-095)."""
     target_days = float(_days(pd.Series([unit.period_start]))[0])
     intl = build_channel(store, intl_rows, cutoff_days=cutoff_days, target_days=target_days, normalizer=normalizer)
-    ncaa = build_channel(store, ncaa_rows, cutoff_days=cutoff_days, target_days=target_days, normalizer=normalizer)
+    ncaa = build_channel(store, ncaa_rows, cutoff_days=cutoff_days if ncaa_cutoff_days is None else ncaa_cutoff_days,
+                         target_days=target_days, normalizer=normalizer)
     dob = unit.dob if isinstance(unit.dob, pd.Timestamp) and not pd.isna(unit.dob) else None
     target_age = float(unit.age_at_cutoff) if not pd.isna(unit.age_at_cutoff) else np.nan
     if intl.present:

@@ -77,6 +77,7 @@ class PoolSampler:
             counts_ok &= np.expm1(raw[:, col[make]]) <= np.expm1(raw[:, col[attempt]]) + 1e-6
         regulation_ok = raw[:, col["regulation"]] == TARGET_REGULATION
         admissible = (~store.is_ncaa) & (store.release <= self.cutoff) & ~np.isin(store.player_id, np.fromiter(heldout_players, dtype=np.int64))
+        admissible &= store.eligible()                # D-095: the store's row policy for uncertain competition periods
         if excluded_rows is not None:                 # D-041 strict control: post-first-season logs leave the pool too
             admissible &= ~np.asarray(excluded_rows, dtype=bool)
         self.admissible = admissible
