@@ -27,8 +27,10 @@ DEFAULT_PATHS = {
     "events": HOME / "Dropbox/ncaa_roster_prediction/events.db",
     "intl_ratings": HOME / "Dropbox/kenpom/output/intl_team_ratings.db",
     "intl_rapm_rolling": HOME / "Dropbox/intl_approx_rapm/data/intl_rapm_rolling.db",     # D-065: dated RAPM snapshots
+    "intl_rapm": HOME / "Dropbox/intl_approx_rapm/data/intl_rapm.db",                     # D-100: per-league-season calibration shifts
+    "portal_ncaa": HOME / "Dropbox/portal_pivot_db/db/ncaa.db",                           # D-101: RealGM lower-division season lines
 }
-OPTIONAL_STORES = ("intl_ratings", "intl_rapm_rolling")
+OPTIONAL_STORES = ("intl_ratings", "intl_rapm_rolling", "intl_rapm", "portal_ncaa")
 
 BOX_COLUMNS_NCAA = ["fg2a", "fg2m", "fg3a", "fg3m", "fta", "ftm", "orb", "drb", "ast", "stl", "blk", "tov", "pf"]
 TEAM_TOTALS = ["FGA", "FTA", "TOV", "AST", "REB", "POSS"]                                  # D-065 usage block
@@ -106,6 +108,8 @@ class Stores:
         "events": ("player_boxscores", "boxscores", "tournament_years"),
         "intl_ratings": ("team_ratings",),
         "intl_rapm_rolling": ("rapm_rolling",),
+        "intl_rapm": ("calibration_shifts",),
+        "portal_ncaa": ("player_summaries",),
     }
 
     def available(self, name: str) -> bool:
@@ -213,6 +217,48 @@ class Stores:
             return None
         return self.frame("intl_rapm_rolling", """
             SELECT player_id, season, league_id, cutoff_date, orapm, drapm, rapm, off_equiv FROM rapm_rolling""")
+
+    def league_calibration_shifts(self) -> pd.DataFrame | None:
+        """Per-league-season shift of the cross-league RAPM calibration (D-100): ``calibrated = raw − shift`` with the
+        EuroLeague pinned at 0, so a larger shift is a weaker league. Metric ``rapm`` (net); optional store."""
+        if not self.has_table("intl_rapm", "calibration_shifts"):
+            return None
+        return self.frame("intl_rapm", """
+            SELECT league_id, season, shift, n_players, pinned FROM calibration_shifts WHERE metric = 'rapm'""")
+
+    def college_season_lines(self) -> pd.DataFrame | None:
+        """Every college season line of RealGM's player Summary pages (portal_pivot_db ``ncaa.player_summaries``,
+        D-101): PlayerID is roster.db's player_id, Season the end year, Level D1/D2/D3/JUCO/OTHER or NULL. Read-only,
+        optional store; the lower-division selection is ``assemble.lower_division_lines``."""
+        if not self.has_table("portal_ncaa", "player_summaries"):
+            return None
+        return self.frame("portal_ncaa", """
+            SELECT PlayerID AS player_id, Season AS season, TeamID AS team_id, School AS school, Level AS level,
+                   GP, GS, MIN, FGM, FGA, FG3M, FG3A, FTM, FTA, TRB, AST, STL, BLK, TOV, PF, PTS
+            FROM player_summaries""")
+
+    def junior_college_lines(self) -> pd.DataFrame | None:
+        """Full-population junior-college season lines in the same ncaa.db (D-101): every NJCAA player, all three
+        divisions, 2012–13 to 2021–22 (``njcaa_players``; shooting as made-attempted text such as '45-118', counts as
+        text), and every California CCCAA player from 2011–12 on (``cccaa_player_seasons``, less 114 stray 2012 Empire 8
+        rows, which are D3). Season is the end year. No shared player id: ``assemble.lower_division_lines`` matches
+        them to RealGM's lower-division rows that list a school and season without stats. NatStat's D2/D3 totals in the
+        same file are not used: matched against RealGM lines that carry stats, their games and points agree only
+        60–74% of the time, against 96% for NJCAA (most fall short by several games)."""
+        parts = []
+        if self.has_table("portal_ncaa", "njcaa_players"):
+            parts.append(self.frame("portal_ncaa", """
+                SELECT 'njcaa' AS source, season, school, player_name AS name, games_played AS GP, games_started AS GS,
+                       minutes AS MIN, field_goals AS FG, threes AS FG3, free_throws AS FT, total_rebounds AS TRB,
+                       assists AS AST, steals AS STL, blocks AS BLK, turnovers AS TOV, personal_fouls AS PF, points AS PTS
+                FROM njcaa_players"""))
+        if self.has_table("portal_ncaa", "cccaa_player_seasons"):
+            parts.append(self.frame("portal_ncaa", """
+                SELECT 'cccaa' AS source, season, team AS school, player_name AS name, gp AS GP, gs AS GS, min AS MIN,
+                       fgm AS FGM, fga AS FGA, fgm3 AS FG3M, fga3 AS FG3A, ftm AS FTM, fta AS FTA, treb AS TRB,
+                       ast AS AST, stl AS STL, blk AS BLK, tov AS TOV, pf AS PF, pts AS PTS
+                FROM cccaa_player_seasons WHERE conference IS NULL OR conference <> 'Empire 8'"""))
+        return pd.concat(parts, ignore_index=True) if parts else None
 
     def ncaa_team_games(self) -> pd.DataFrame:
         """Team lines; ``team_id`` 0 marks an untracked (non-D1) opponent and is dropped. Provider team minutes

@@ -81,8 +81,12 @@ BASE_STATIC_CONTINUOUS = [
 ]
 assert [n for n, _, _ in BASE_STATIC_CONTINUOUS] == STATIC_CONTINUOUS
 
-BLOCKS = ("prior_league", "usage", "destination", "intl_rapm", "on3", "hs", "hs_alumni")
-V9_DEFAULT_BLOCKS = ("prior_league", "usage", "destination", "intl_rapm", "on3")   # `v9` without blocks: the D-065 set; hs (D-091) is opt-in
+BLOCKS = ("prior_league", "usage", "destination", "intl_rapm", "on3", "hs", "hs_alumni", "league_strength", "lower_div")
+# The production model (D-100, adopted 2026-11-09 after four fold/seed pairs): `v9` without blocks, and `auto` on tables
+# that carry these blocks' columns. The D-065 set added `usage` and `intl_rapm`, which cost every cohort (most of all
+# first-year internationals); runs record their blocks explicitly, so saved runs keep the set they were trained with.
+V9_DEFAULT_BLOCKS = ("prior_league", "destination", "on3")
+AUTO_BLOCK_COLUMNS = ("prior_league", "dest_ret_min_share", "recruit_rank_from_on3")
 # Per-game fields of the optional blocks (tables v11 and later carry the columns; missing columns read as masked).
 BLOCK_GAME_FIELDS = {
     "usage": [("usage_game", "usage_game", "identity"), ("pts_share", "pts_share", "identity"), ("fga_share", "fga_share", "identity"),
@@ -91,6 +95,9 @@ BLOCK_GAME_FIELDS = {
               ("n_team_contributors", "n_team_contributors", "log1p")],
     "intl_rapm": [("rapm_orapm", "rapm_orapm", "identity"), ("rapm_drapm", "rapm_drapm", "identity"),
                   ("rapm_off_equiv", "rapm_off_equiv", "log1p"), ("rapm_snapshot_age", "rapm_snapshot_age_days", "log1p")],
+    # D-100 (tables v17): the game's league on the cross-league RAPM scale, −(calibration shift) of the prior season,
+    # EuroLeague 0, higher = stronger; one shared scale the competition embedding cannot give rare leagues
+    "league_strength": [("league_strength", "league_strength", "identity")],
 }
 # Static unit fields of the optional blocks.
 BLOCK_STATIC_FIELDS = {
@@ -114,6 +121,14 @@ BLOCK_STATIC_FIELDS = {
     # ncaa"): no region category and no known-school flag; an unknown school is masked like any missing input
     "hs_alumni": [("hs_talent", "hs_talent", "identity"), ("hs_alumni_n_log", "hs_alumni_n", "log1p"),
                   ("hs_alumni_min_share", "hs_alumni_min_share", "identity"), ("hs_alumni_level", "hs_alumni_level", "identity")],
+    # D-101 (tables v18): the last lower-division season (D2, D3, JUCO/NAIA/other) before a first D1 season, first-year
+    # units only; no known flag (a missing line is masked)
+    "lower_div": [("ld_gap", "ld_gap", "identity"), ("ld_seasons_log", "ld_seasons", "log1p"), ("ld_gp_log", "ld_gp", "log1p"),
+                  ("ld_mpg", "ld_mpg", "identity"), ("ld_gs_share", "ld_gs_share", "identity"),
+                  ("ld_pts40", "ld_pts40", "identity"), ("ld_trb40", "ld_trb40", "identity"), ("ld_ast40", "ld_ast40", "identity"),
+                  ("ld_stlblk40", "ld_stlblk40", "identity"), ("ld_tov40", "ld_tov40", "identity"),
+                  ("ld_fga40", "ld_fga40", "identity"), ("ld_fg3a_share", "ld_fg3a_share", "identity"),
+                  ("ld_fta_rate", "ld_fta_rate", "identity"), ("ld_ts", "ld_ts", "identity")],
 }
 BLOCK_STATIC_CATEGORICAL = {"prior_league": ["prior_league"], "hs": ["hs_region"]}
 
@@ -140,8 +155,8 @@ class FeatureSchema:
 
 
 def feature_schema(name: str = "v7", blocks=None) -> FeatureSchema:
-    """``v7`` and ``v8`` are fixed; ``v9`` takes the optional blocks (default: the D-065 set ``V9_DEFAULT_BLOCKS``), kept in
-    canonical order."""
+    """``v7`` and ``v8`` are fixed; ``v9`` takes the optional blocks (default: the production set ``V9_DEFAULT_BLOCKS``),
+    kept in canonical order."""
     if name in ("v7", "v8"):
         if blocks:
             raise ValueError(f"Feature schema {name} takes no blocks")
@@ -174,10 +189,14 @@ def schema_from_config(config: dict | None, units: pd.DataFrame | None = None) -
 
 
 def resolve_schema(name: str = "auto", blocks=None, units: pd.DataFrame | None = None) -> FeatureSchema:
-    """CLI resolution: ``auto`` reproduces the pre-D-065 behaviour (v8 iff the tables carry ``recruit_status``)."""
+    """CLI resolution. ``auto`` is the production model: v9 with ``V9_DEFAULT_BLOCKS`` when the tables carry those
+    blocks' columns (tables v11 and later); older tables fall back to the rule that read them then (v8 iff they carry
+    ``recruit_status``, else v7)."""
     if name == "auto":
         if blocks:
             raise ValueError("Feature blocks need --feature-schema v9")
+        if units is not None and all(c in units.columns for c in AUTO_BLOCK_COLUMNS):
+            return feature_schema("v9")
         return schema_from_config(None, units)
     return feature_schema(name, blocks)
 
@@ -571,6 +590,21 @@ def collate(examples: list[Example]) -> dict:
         "unit_id": [e.unit_id for e in examples],
     }
     return batch
+
+
+def drop_history(example: Example, p: float, rng: np.random.Generator) -> Example:
+    """Training augmentation (D-097): with probability ``p`` a forward example's whole international/national history
+    is removed, so the example reaches the model exactly as a player with no tracked history would (empty channel, and
+    the source-age and gap-to-target parts of the time basis unobserved; the target age stays). Reconstruction examples
+    and examples without a history are returned unchanged. ``drop_games`` keeps at least one game and cannot do this."""
+    if p <= 0 or example.direction != "-" or not example.intl.present or rng.random() >= p:
+        return example
+    time, time_mask = example.time.copy(), example.time_mask.copy()
+    keep = np.zeros_like(time_mask)
+    keep[1] = True                                         # target age is known without any history
+    time, time_mask = np.where(keep, time, 0.0).astype(time.dtype), time_mask & keep
+    return Example(example.unit_id, example.direction, example.k, Channel.empty(example.intl.x.shape[1]), example.ncaa,
+                   example.static, example.static_mask, example.static_cats, time, time_mask, example.targets, example.weight)
 
 
 def drop_games(example: Example, p: float, rng: np.random.Generator) -> Example:

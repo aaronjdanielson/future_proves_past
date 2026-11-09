@@ -17,12 +17,12 @@ class SpecificationTests(unittest.TestCase):
     def test_source_tampering_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for name in ["config/protocol.json", "paper/international_ncaa_translation.tex",
+            for name in ["config/protocol.json", "technical_paper/international_ncaa_translation.tex",
                          "IMPLEMENTATION_PLAN.md", "DECISIONS.md"]:
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, target)
-            source = root / "paper/international_ncaa_translation.tex"
+            source = root / "technical_paper/international_ncaa_translation.tex"
             source.write_text(source.read_text() + "\n% unregistered change\n")
             with self.assertRaisesRegex(ValueError, "hash disagrees"):
                 verify_specification(root)

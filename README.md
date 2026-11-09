@@ -246,7 +246,7 @@ The reference tower has 57,363 parameters and trains in about fourteen minutes a
 | `fpp/data` | Dated data contracts: calendars and cutoffs, immutable game records, nested reconstruction windows, routing of games and summaries, rolling folds, the table assembler over the upstream stores |
 | `fpp/model` | The season distribution and its observed-data likelihood (NumPy/SciPy reference and a differentiable PyTorch twin), feature construction, the game tower, pooling, heads |
 | `fpp/experiments` | Training and scoring of one arm on one fold, fold reports, intercept-only recovery |
-| `tests/` | 197 tests: likelihood identities, cutoff and leakage guards, strict-control masks, weighting, cross-stopping, every architecture option reproducing the registered model by default |
+| `tests/` | 238 tests: likelihood identities, cutoff and leakage guards, strict-control masks, weighting, cross-stopping, every architecture option reproducing the registered model by default |
 | `config/protocol.json` | The calendar, cutoffs, fold layout and numerical tolerances the code enforces. Its arm letters and four-year reconstruction horizon are the original design; the recipe actually compared (the full model against the strict control, every later season, two fits) is fixed in `TEST_REGISTRATION_2026.md` in the release |
 | `replication/` | Frozen scoring scripts, the NCAA team totals and PER constants they read, the abstract source and its figure scripts, the script behind the 2026–27 figure above, and the archive checksums |
 | `data/` | The 2026–27 forecast cohort |
@@ -259,7 +259,7 @@ Not in the repository: the upstream game databases (built from public box scores
 ```sh
 python -m venv .venv && . .venv/bin/activate
 python -m pip install -e ".[model,data,dev]"
-python -m pytest tests -q                      # 197 tests, about two minutes
+python -m pytest tests -q                      # 238 tests, about two minutes
 fpp smoke --out artifacts/smoke.json --draws 200 --score-first 3     # synthetic seasons, no data needed
 fpp gradcheck --out artifacts/gradcheck.json                          # differentiable likelihood vs the reference
 ```
@@ -274,6 +274,8 @@ fpp train --tables cache/tables_v11 --fold 2023 --arm A --exclude-post-first-sea
           --seed 20260901 --out cache/runs/control_2023
 fpp report-run --run cache/runs/ARfull_2023 --compare cache/runs/control_2023 --tables cache/tables_v11
 ```
+
+On tables v11 and later, `fpp train` uses the production feature set by default: the base inputs plus each player's prior league, the destination team's returning players and playing style, and the On3 recruiting-rank fill. Saved runs record the feature set they were trained with and are always read with it.
 
 Useful flags: `--cross-stop 0|1` and `--weighting season_balanced --first-year-share 0.5`; `fpp train --help` lists the rest. The architecture defaults reproduce the registered tower; the full model also takes `--recon-horizon-years none --recon-k 1,2,3,all`, as above.
 

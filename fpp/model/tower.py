@@ -263,7 +263,24 @@ class PretrainHead(nn.Module):
 
 
 ARCHITECTURE_DEFAULTS = {"width": D, "hidden": HIDDEN, "direction_film": False, "future_head": False,
-                         "head_hidden": 0, "attention_pool": False}
+                         "head_hidden": 0, "attention_pool": False, "static_branch": False}
+
+
+class EvidenceGate(nn.Module):
+    """D-097: blend weight g in (0, 1) on the history-based representation, from how much tracked evidence there is:
+    channel presence and log game counts. Zero-initialised weights with bias 0 (g = 1/2 everywhere at the start); a
+    player without any history gets the same learned g, so the blend for that cohort is one learned constant."""
+
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(4, 1)
+        nn.init.zeros_(self.linear.weight)
+        nn.init.zeros_(self.linear.bias)
+
+    def forward(self, batch: dict) -> torch.Tensor:
+        ev = torch.stack([batch["intl"]["present"].float(), batch["ncaa"]["present"].float(),
+                          batch["intl"]["evidence"][:, 0], batch["ncaa"]["evidence"][:, 0]], dim=-1)
+        return torch.sigmoid(self.linear(ev))
 ARCHITECTURE_KEYS = tuple(ARCHITECTURE_DEFAULTS)      # the constructor arguments a recorded architecture may carry
 
 
@@ -273,10 +290,10 @@ class ReferenceTower(nn.Module):
     def __init__(self, vocab_sizes: list[int], static_vocab_sizes: list[int], reference: SeasonParameters | None = None,
                  n_context: int = 0, n_fields: int | None = None, n_static: int | None = None,
                  width: int = D, hidden: int = HIDDEN, direction_film: bool = False, future_head: bool = False,
-                 head_hidden: int = 0, attention_pool: bool = False):
+                 head_hidden: int = 0, attention_pool: bool = False, static_branch: bool = False):
         super().__init__()
         self.architecture = {"width": int(width), "hidden": int(hidden), "direction_film": bool(direction_film), "future_head": bool(future_head),
-                             "head_hidden": int(head_hidden), "attention_pool": bool(attention_pool)}
+                             "head_hidden": int(head_hidden), "attention_pool": bool(attention_pool), "static_branch": bool(static_branch)}
         # Input widths follow the run's feature schema (D-065); the defaults are the registered v7 widths.
         self.encoder = GameEncoder(len(F.FIELD_NAMES) if n_fields is None else int(n_fields), vocab_sizes, width=width, hidden=hidden)
         self.pool_intl = ChannelPool(width=width, hidden=hidden, attention=attention_pool)
@@ -285,6 +302,11 @@ class ReferenceTower(nn.Module):
         self.heads = OutcomeHeads(reference, width=width, head_hidden=head_hidden)
         self.pretrain_head = PretrainHead(self.encoder, n_context, reference, width=width, hidden=hidden) if n_context else None
         self.future_head = nn.Linear(width, 1) if future_head else None
+        # D-097: a static-only branch (the same static, category and time inputs, no game channels) that only forward
+        # examples train, blended with the history-based representation by an evidence gate. With little evidence the
+        # prediction leans on a mapping that reconstruction cannot pull toward players with long later careers.
+        self.static_branch = Translator(static_vocab_sizes, n_static, width=width, hidden=hidden) if static_branch else None
+        self.gate = EvidenceGate() if static_branch else None
 
     def reset_heads(self, reference: SeasonParameters | None = None) -> None:
         """Fresh outcome heads at ``reference``, with this tower's recorded head architecture (width, head_hidden), so a
@@ -294,7 +316,16 @@ class ReferenceTower(nn.Module):
     def represent(self, batch: dict) -> torch.Tensor:
         h_intl = self.pool_intl(self.encoder(batch["intl"]), batch["intl"])
         h_ncaa = self.pool_ncaa(self.encoder(batch["ncaa"]), batch["ncaa"])
-        return self.translator(h_intl, h_ncaa, batch)
+        u = self.translator(h_intl, h_ncaa, batch)
+        if self.static_branch is None:
+            return u
+        zeros = torch.zeros_like(h_intl)
+        u_static = self.static_branch(zeros, zeros, batch)
+        direction = batch.get("direction")                                # pool batches carry none: not forward
+        forward = (direction < 0).unsqueeze(-1) if direction is not None else torch.zeros_like(u[:, :1], dtype=torch.bool)
+        u_static = torch.where(forward, u_static, u_static.detach())     # trained by forward examples only
+        g = self.gate(batch)
+        return g * u + (1.0 - g) * u_static
 
     def forward(self, batch: dict) -> dict:
         u = self.represent(batch)

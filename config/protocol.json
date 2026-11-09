@@ -2,7 +2,7 @@
   "schema_version": 1,
   "specification": {
     "revision": "6.3",
-    "source": "paper/international_ncaa_translation.tex",
+    "source": "technical_paper/international_ncaa_translation.tex",
     "sha256": "f05e26e1c7b0ee7c36a3ffbaec3ab5b1ac4fa6aeccec882b9e27b9221b99627c",
     "decision": "D-019"
   },

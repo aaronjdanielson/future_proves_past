@@ -276,10 +276,25 @@ def check_tables(run_payload: dict, tab: dict, *, allow_mismatch: bool = False) 
     return status
 
 
+def fitted_model(run_payload: dict, run_dir):
+    """The run's fitted-model artifact (D-095), validated against the digest its manifest recorded; None for runs
+    trained before artifacts existed."""
+    info = run_payload.get("artifact")
+    if not info or run_dir is None:
+        return None
+    from ..model.artifact import load_fitted_model
+    return load_fitted_model(Path(run_dir) / info["path"], expected_sha256=info["sha256"])
+
+
 def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None, *, allow_table_mismatch: bool = True):
+    """Rebuild a run's evaluation data and network. Runs with a fitted-model artifact (D-095) restore their vocabulary,
+    normalizer and weights from it: on the training tables the rebuilt preprocessing must equal the artifact's (else
+    the call fails); on other tables (only with ``allow_table_mismatch``) the artifact's preprocessing is used as is.
+    Older runs are rebuilt from the tables and their weights loaded by the caller."""
     from .train import protocol_test_season
     tab = read_tables(tables_dir)
     tab["tables_check"] = check_tables(run_payload, tab, allow_mismatch=allow_table_mismatch)
+    fitted = fitted_model(run_payload, run_dir)
     units = tab["units"]
     cfg = run_payload["config"]
     # D-095: the registered test season (as the run recorded it), not the supplied tables' last season.
@@ -288,7 +303,9 @@ def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None, *, allow_table_m
                     frozenset(units.loc[(units["season"] == protocol_test) & units["intl_entrant"], "player_id"]))
     dobs = F.player_dobs(tab)
     fs = F.schema_from_config(cfg, units)                        # the run's feature schema (D-065)
-    store = F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs, row_guard=row_guard(run_payload))
+    foreign = fitted is not None and tab["tables_check"]["match"] is not True
+    store = (fitted.store(tab["games"], dobs=dobs) if foreign else
+             F.GameStore.from_frame(tab["games"], dobs=dobs, schema=fs, row_guard=row_guard(run_payload)))
     fold_season = int(run_payload["fold"])
     fold = Fold(fold_season, "development" if fold_season <= 2023 else "selection")
     rw = cfg.get("reconstruction_windows") or {}
@@ -299,6 +316,13 @@ def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None, *, allow_table_m
                            label_scope=cfg.get("label_scope", "all"),
                            weighting=cfg.get("weighting", "player_balanced"), first_year_share=cfg.get("first_year_share"),
                            normalizer_exclusion=normalizer_exclusion(run_payload, run_dir))
+    if fitted is not None:
+        if foreign:      # other tables (explicitly allowed): apply the model's own preprocessing to them
+            import dataclasses
+            ds = dataclasses.replace(ds, normalizer=fitted.normalizer, static_vocab=fitted.static_vocab)
+        else:            # the training tables: the rebuilt preprocessing must be the fitted one
+            fitted.check_preprocessing(vocab=store.vocab, static_vocab=ds.static_vocab, normalizer=ds.normalizer)
+        return tab, ds, fitted.build_model()
     vocab_sizes = [len(store.vocab[c]) for c in F.CATEGORICAL]
     static_sizes = [len(v) for v in ds.static_vocab.values()]
     kind = run_payload.get("model", "tower")

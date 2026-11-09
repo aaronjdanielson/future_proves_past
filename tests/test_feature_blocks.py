@@ -13,6 +13,9 @@ from fpp.model.tower import ReferenceTower
 from tests.test_pool_and_arms import _pool_games
 
 
+D065 = ("prior_league", "usage", "destination", "intl_rapm", "on3")                     # the D-065 set, with game blocks
+
+
 class SchemaTests(unittest.TestCase):
     def test_schema_widths(self):
         v7, v8, v9 = F.feature_schema("v7"), F.feature_schema("v8"), F.feature_schema("v9")
@@ -20,10 +23,14 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(v7.field_names, F.FIELD_NAMES)
         self.assertEqual(v7.static_names, F.STATIC_CONTINUOUS)
         self.assertEqual(list(v8.static_categorical), F.STATIC_CATEGORICAL_V8)
-        self.assertEqual(len(v9.continuous), 39 + 9 + 4)
-        self.assertEqual(len(v9.static_continuous), 12 + 1 + 15 + 4 + 1)
+        self.assertEqual(v9.blocks, ("prior_league", "destination", "on3"))             # production set (D-100)
+        self.assertEqual(v9.blocks, F.V9_DEFAULT_BLOCKS)
+        self.assertEqual(len(v9.continuous), 39)                                         # static blocks only
+        self.assertEqual(len(v9.static_continuous), 12 + 1 + 15 + 1)
         self.assertEqual(list(v9.static_categorical), F.STATIC_CATEGORICAL_V8 + ["prior_league"])
-        self.assertEqual(v9.blocks, F.BLOCKS)
+        d065 = F.feature_schema("v9", D065)
+        self.assertEqual(len(d065.continuous), 39 + 9 + 4)
+        self.assertEqual(len(d065.static_continuous), 12 + 1 + 15 + 4 + 1)
         sub = F.feature_schema("v9", ("on3", "usage"))
         self.assertEqual(sub.blocks, ("usage", "on3"))                                  # canonical order
         self.assertEqual((len(sub.continuous), len(sub.static_continuous), len(sub.static_categorical)), (48, 13, 5))
@@ -41,7 +48,10 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(F.schema_from_config(None, units_v7).name, "v7")
         rec = F.feature_schema("v9", ("usage",)).describe()
         self.assertEqual(F.schema_from_config({"feature_schema": rec}, units_v7).blocks, ("usage",))
-        self.assertEqual(F.resolve_schema("auto", None, units_v8).name, "v8")
+        self.assertEqual(F.resolve_schema("auto", None, units_v8).name, "v8")              # pre-v11 tables: old rule
+        units_v9 = units_v8.assign(prior_league=["intl"], dest_ret_min_share=[0.5], recruit_rank_from_on3=[0.0])
+        auto = F.resolve_schema("auto", None, units_v9)
+        self.assertEqual((auto.name, auto.blocks), ("v9", F.V9_DEFAULT_BLOCKS))           # production model
         with self.assertRaises(ValueError):
             F.resolve_schema("auto", ("usage",), units_v8)
 
@@ -55,14 +65,14 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(z.shape, (2, 12))
         np.testing.assert_allclose(z[0], [18.5, 0, 1, 200, 90, np.log1p(10), 0.99, 5, 110, 95, 70, np.log1p(31)])
         self.assertTrue(np.isnan(z[1, [0, 4, 5, 6, 7, 11]]).all())
-        z9 = F.static_continuous(units, F.feature_schema("v9"))
+        z9 = F.static_continuous(units, F.feature_schema("v9", D065))
         self.assertEqual(z9.shape, (2, 33))
         np.testing.assert_allclose(z9[:, :12], z)
         self.assertTrue(np.isnan(z9[:, 12:]).all())                                     # block columns absent: masked
 
     def test_store_channel_and_tower_under_v9(self):
         games = _pool_games(n_players=2, n_games=5)
-        fs = F.feature_schema("v9")
+        fs = F.feature_schema("v9", D065)
         store = F.GameStore.from_frame(games, schema=fs)
         self.assertEqual(store.raw.shape[1], 52)
         self.assertEqual(len(store.missing_fields), 13)                                  # the fixture predates the blocks

@@ -65,6 +65,7 @@ TEAM_TOTAL_COLUMNS = ["team_fga", "team_fta", "team_tov", "team_ast", "team_reb"
 TEAM_TOTAL_RENAMES = {"FGA": "team_fga", "FTA": "team_fta", "TOV": "team_tov", "AST": "team_ast", "REB": "team_reb", "POSS": "team_poss"}
 ROLE_COLUMNS = ["usage_game", "pts_share", "fga_share", "ast_share", "reb_share", "tov_share", "min_rank_on_team", "n_team_contributors"]
 RAPM_GAME_COLUMNS = ["rapm_orapm", "rapm_drapm", "rapm_off_equiv", "rapm_snapshot_age_days"]
+LEAGUE_STRENGTH_COLUMNS = ["league_strength"]      # D-100: the league on the cross-league RAPM scale, prior season
 GAME_COLUMNS = [
     "record_id", "source", "player_id", "game_id", "date", "release_date", "season", "season_method",
     "original_label", "provider_season_id", "label_agrees_with_bucket", "mapping_version",
@@ -81,6 +82,7 @@ GAME_COLUMNS = [
     # Rating uncertainty (D-039, tables_v8): same availability dates as the ratings they belong to.
     "opp_adj_o_sd", "opp_adj_d_sd", "opp_prior_adj_o_sd", "opp_prior_adj_d_sd", "team_adj_o_sd", "team_adj_d_sd",
     *TEAM_TOTAL_COLUMNS, *ROLE_COLUMNS, *RAPM_GAME_COLUMNS,                       # D-065 (tables v11)
+    *LEAGUE_STRENGTH_COLUMNS,                                                     # D-100 (tables v17)
 ]
 STRENGTH_SD = ["adj_o_sd", "adj_d_sd"]
 
@@ -350,6 +352,7 @@ def build_intl_games(stores: Stores, *, lag_days: int, gap_days: int):
         out[col] = frame[col]
     out = pd.concat([out, fiba_counts(frame), _team_totals(frame)], axis=1)
     out = attach_rolling_rapm(attach_role_fields(out), stores.intl_rapm_rolling())      # D-065 usage and RAPM blocks
+    out = attach_league_strength(out, stores.league_calibration_shifts())             # D-100 league strength
     games = _finish(out, lag_days)
     # Where each starter flag came from (D-063), for the build audit: page value, listing order, or none.
     games.attrs["starter_source"] = (frame["starter_source"].map(STARTER_SOURCE).value_counts().to_dict()
@@ -627,6 +630,25 @@ def attach_rolling_rapm(games: pd.DataFrame, rolling: pd.DataFrame | None) -> pd
     return games
 
 
+def attach_league_strength(games: pd.DataFrame, shifts: pd.DataFrame | None) -> pd.DataFrame:
+    """League strength per international game row (D-100): minus the cross-league RAPM calibration shift of the game's
+    league in the season before the game's upstream label (``calibrated = raw − shift``, EuroLeague 0), so the field is
+    on one scale across leagues, higher = stronger, and known before the season starts. Leagues without a fitted shift,
+    a league's first fitted season, and rows from other sources carry NaN."""
+    games["league_strength"] = np.nan
+    if shifts is None or len(shifts) == 0 or len(games) == 0:
+        return games
+    s = shifts.dropna(subset=["league_id", "season", "shift"]).drop_duplicates(["league_id", "season"])
+    s = pd.DataFrame({"competition_id": s["league_id"].astype("float64"), "season_before": s["season"].astype("float64"),
+                      "shift": s["shift"].astype("float64")})
+    left = pd.DataFrame({"competition_id": pd.to_numeric(games["competition_id"], errors="coerce").astype("float64"),
+                         "season_before": pd.to_numeric(games["original_label"], errors="coerce").astype("float64") - 1.0})
+    merged = left.merge(s, on=["competition_id", "season_before"], how="left")          # keeps the left row order
+    intl = (games["source"] == "intl").to_numpy() if "source" in games else np.ones(len(games), dtype=bool)
+    games["league_strength"] = np.where(intl, -merged["shift"].to_numpy(dtype="float64"), np.nan)
+    return games
+
+
 # ``national_team_only`` added upstream on 2026-09-30: no club, youth, school or D1 origin, national-team games before t.
 PRIOR_LEAGUE_LEVELS = ("ncaa_d1", "hs_or_none", "juco_naia_other", "ncaa_d2", "ncaa_d3", "intl", "national_team_only")
 # Units without an upstream row (e.g. the deployment season's freshmen) take the roster role's reading; ``unknown``
@@ -787,6 +809,171 @@ def attach_unit_blocks(units: pd.DataFrame, aux: dict) -> pd.DataFrame:
     hs = aux.get("hs_school")
     if hs is not None:
         units = attach_hs_block(units, hs, first_year_only=bool(aux.get("hs_first_year_only", False)))   # forecasts: freshmen only
+    ld = aux.get("lower_division_lines")
+    if ld is not None:
+        units = attach_lower_division(units, ld)
+    return units
+
+
+# D-101: the player's last lower-division season (D2, D3, JUCO/NAIA/other) before his first D1 season, from RealGM's
+# player Summary pages. Static, first-year units only (a later D1 season has D1 history); no known flag, because in the
+# 2014–15 to 2020–21 seasons, when RealGM filled only part of these lines, the filled ones belong to players who went on
+# to play somewhat more (D-101); a missing line is masked like any missing input.
+LOWER_DIV_COLUMNS = ["ld_gap", "ld_seasons", "ld_gp", "ld_mpg", "ld_gs_share", "ld_pts40", "ld_trb40", "ld_ast40",
+                     "ld_stlblk40", "ld_tov40", "ld_fga40", "ld_fg3a_share", "ld_fta_rate", "ld_ts"]
+LOWER_DIV_COUNTS = ["GP", "GS", "MIN", "FGM", "FGA", "FG3M", "FG3A", "FTM", "FTA", "TRB", "AST", "STL", "BLK", "TOV", "PF", "PTS"]
+LOWER_DIV_LEVELS = ("D2", "D3", "JUCO", "OTHER")
+LOWER_DIV_MIN_MINUTES = 40          # per-40 and shooting rates need at least this many minutes
+
+
+LOWER_DIV_NO_SCHOOL = ("DNP", "N/A")      # RealGM's placeholders for a season without a team: nothing to match on
+_SCHOOL_STOP = frozenset({"cc", "c", "jc", "j", "college", "community", "junior", "the", "of", "at", "university", "univ",
+                          "u", "institute", "technical", "tech", "and", "school", "academy", "ctc", "tc", "scc", "ccc",
+                          "area", "county", "st", "saint"})
+
+
+def _person_key(name) -> str:
+    """Lower-case letters only, initials closed up ('D.J.' and 'DJ' agree), generational suffixes dropped."""
+    s = str(name).lower().replace(".", "").replace("'", "").replace("’", "").replace("`", "")
+    s = re.sub(r"[^a-z]", " ", s)
+    s = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", " ", s)
+    return " ".join(s.split())
+
+
+def _school_tokens(name) -> frozenset:
+    """Distinctive words of a school name: no parenthesised state, no 'Community College'-type words."""
+    s = re.sub(r"\(.*?\)", " ", str(name).lower())
+    s = s.replace(".", "").replace("'", "").replace("’", "").replace("`", "")
+    return frozenset(w for w in re.sub(r"[^a-z]", " ", s).split() if len(w) > 1 and w not in _SCHOOL_STOP)
+
+
+def _made_attempted(col: pd.Series) -> tuple[pd.Series, pd.Series]:
+    parts = col.astype(str).str.extract(r"^\s*(\d+)\s*-\s*(\d+)")
+    return pd.to_numeric(parts[0], errors="coerce"), pd.to_numeric(parts[1], errors="coerce")
+
+
+def junior_college_frame(raw: pd.DataFrame | None) -> pd.DataFrame | None:
+    """``Stores.junior_college_lines`` in the counts schema of the RealGM lines: made-attempted text split, counts
+    numeric."""
+    if raw is None or len(raw) == 0:
+        return None
+    t = raw.copy()
+    for pre, made, att in (("FG", "FGM", "FGA"), ("FG3", "FG3M", "FG3A"), ("FT", "FTM", "FTA")):
+        if pre in t:
+            m, a = _made_attempted(t[pre])
+            t[made] = t[made].where(t[made].notna(), m) if made in t else m
+            t[att] = t[att].where(t[att].notna(), a) if att in t else a
+    for c in LOWER_DIV_COUNTS:
+        t[c] = pd.to_numeric(t[c], errors="coerce") if c in t else np.nan
+    t["season"] = pd.to_numeric(t["season"], errors="coerce")
+    return t[["source", "season", "school", "name"] + LOWER_DIV_COUNTS].dropna(subset=["season"])
+
+
+def _match_junior_college(listed: pd.DataFrame, names: pd.DataFrame, junior: pd.DataFrame) -> pd.DataFrame:
+    """Junior-college lines for RealGM rows that list a school and season without stats: same season, same player name
+    and at least one distinctive school word in common, kept only when exactly one line qualifies for the row and no
+    other player claims that line."""
+    if len(listed) == 0:
+        return listed.iloc[0:0]
+    left = listed[["player_id", "season", "school"]].merge(names, on="player_id", how="inner")
+    left["key"] = left["name"].map(_person_key)
+    left["st"] = left["school"].map(_school_tokens)
+    left = left.reset_index(drop=True).reset_index().rename(columns={"index": "row"})
+    right = junior.reset_index(drop=True).reset_index().rename(columns={"index": "line", "school": "j_school"})
+    right["key"] = right["name"].map(_person_key)
+    m = left[["row", "player_id", "season", "key", "st"]].merge(right.drop(columns="name"), on=["season", "key"])
+    if len(m) == 0:
+        return listed.iloc[0:0]
+    m = m[[bool(a & _school_tokens(b)) for a, b in zip(m["st"], m["j_school"])]]
+    m = m[m.groupby("row")["line"].transform("size") == 1]
+    m = m[m.groupby("line")["player_id"].transform("nunique") == 1]
+    return m[["player_id", "season", "source"] + LOWER_DIV_COUNTS]
+
+
+def lower_division_lines(lines: pd.DataFrame | None, junior: pd.DataFrame | None = None,
+                         names: pd.DataFrame | None = None) -> pd.DataFrame | None:
+    """One row per (player_id, season) of lower-division play with minutes, counts summed over schools (a mid-season
+    move). A RealGM row counts as lower-division when its Level is D2, D3, JUCO or OTHER, or when the Level is missing
+    and neither its team id nor its school name ever appears on a D1 row: most rows with a missing Level are D1
+    seasons whose Level was never filled (D-101). RealGM rows that list a lower-division school and season without
+    stats (most junior-college seasons before 2021–22) take the junior-college line of ``junior`` that matches on
+    season, player name (``names``: player_id, name) and school; ``source`` records where each season's counts came
+    from."""
+    if lines is None or len(lines) == 0:
+        return None
+    t = lines.copy()
+    level = t["level"].astype(object)
+    d1 = (level == "D1").to_numpy()
+    d1_teams = set(t.loc[d1, "team_id"].dropna())
+    d1_schools = set(t.loc[d1, "school"].dropna())
+    lower = level.isin(LOWER_DIV_LEVELS) | (level.isna() & ~t["team_id"].isin(d1_teams) & ~t["school"].isin(d1_schools))
+    t[LOWER_DIV_COUNTS] = t[LOWER_DIV_COUNTS].apply(pd.to_numeric, errors="coerce")
+    stats = lower & (t["MIN"] > 0) & (t["GP"] > 0)
+    parts = [t[stats].assign(source="realgm")[["player_id", "season", "source"] + LOWER_DIV_COUNTS]]
+    jc = junior_college_frame(junior)
+    if jc is not None and names is not None and len(names):
+        listed = t[lower & ~(t["MIN"] > 0) & t["school"].notna() & ~t["school"].isin(LOWER_DIV_NO_SCHOOL)]
+        have = pd.MultiIndex.from_frame(t.loc[stats, ["player_id", "season", "school"]])
+        listed = listed[~pd.MultiIndex.from_frame(listed[["player_id", "season", "school"]]).isin(have)]
+        parts.append(_match_junior_college(listed, names[["player_id", "name"]].dropna(), jc))
+    t = pd.concat(parts, ignore_index=True)
+    t = t[(t["MIN"] > 0) & (t["GP"] > 0)]
+    # a count a source leaves blank stays missing (NJCAA omits starts on about a quarter of its rows); RealGM's are
+    # always filled
+    out = t.groupby(["player_id", "season"], as_index=False)[LOWER_DIV_COUNTS].sum(min_count=1)
+    src = t.groupby(["player_id", "season"])["source"].agg(lambda s: "+".join(sorted(set(s))))
+    out = out.merge(src.rename("source").reset_index(), on=["player_id", "season"], how="left")
+    out["player_id"] = out["player_id"].astype("int64")
+    out["season"] = out["season"].astype("int64")
+    return out
+
+
+def lower_division_table(stores: Stores) -> pd.DataFrame | None:
+    lines = stores.college_season_lines()
+    if lines is None:
+        return None
+    return lower_division_lines(lines, stores.junior_college_lines(), stores.players()[["player_id", "name"]])
+
+
+def attach_lower_division(units: pd.DataFrame, lines: pd.DataFrame | None) -> pd.DataFrame:
+    """The ``ld_*`` fields of each first-year unit from the player's last lower-division season strictly before the
+    unit's season (a completed season, so known at the cutoff); NaN when there is none. Units without a ``first_year``
+    column (the deployment forecast frame, all entrants) are all eligible."""
+    units = units.drop(columns=[c for c in LOWER_DIV_COLUMNS if c in units.columns]).reset_index(drop=True)
+    for c in LOWER_DIV_COLUMNS:
+        units[c] = np.nan
+    if lines is None or len(lines) == 0 or len(units) == 0:
+        return units
+    eligible = units["first_year"].astype(bool).to_numpy() if "first_year" in units else np.ones(len(units), dtype=bool)
+    left = pd.DataFrame({"row": np.flatnonzero(eligible), "player_id": units.loc[eligible, "player_id"].to_numpy(),
+                         "season": units.loc[eligible, "season"].to_numpy()})
+    right = lines.rename(columns={"season": "ld_season"})
+    m = left.merge(right, on="player_id", how="inner")
+    m = m[m["ld_season"] < m["season"]]
+    if len(m) == 0:
+        return units
+    n_seasons = m.groupby("row").size()
+    last = m.sort_values(["row", "ld_season"]).groupby("row").tail(1).set_index("row")
+    mins = last["MIN"].astype("float64")
+    rated = mins >= LOWER_DIV_MIN_MINUTES
+    per40 = lambda x: (40.0 * x / mins).where(rated)                                   # noqa: E731
+    fga = last["FGA"].astype("float64")
+    shots = fga + 0.44 * last["FTA"]
+    fields = {
+        "ld_gap": last["season"] - last["ld_season"],
+        "ld_seasons": n_seasons.reindex(last.index).astype("float64"),
+        "ld_gp": last["GP"].astype("float64"),
+        "ld_mpg": mins / last["GP"],
+        "ld_gs_share": (last["GS"] / last["GP"]).clip(0.0, 1.0),
+        "ld_pts40": per40(last["PTS"]), "ld_trb40": per40(last["TRB"]), "ld_ast40": per40(last["AST"]),
+        "ld_stlblk40": per40(last["STL"] + last["BLK"]), "ld_tov40": per40(last["TOV"]), "ld_fga40": per40(fga),
+        "ld_fg3a_share": (last["FG3A"] / fga).where(rated & (fga > 0)),
+        "ld_fta_rate": (last["FTA"] / fga).where(rated & (fga > 0)),
+        "ld_ts": (last["PTS"] / (2.0 * shots)).where(rated & (shots > 0)),
+    }
+    rows = last.index.to_numpy()
+    for c in LOWER_DIV_COLUMNS:
+        units.loc[rows, c] = pd.to_numeric(fields[c], errors="coerce").astype("float64").to_numpy()
     return units
 
 
@@ -834,6 +1021,9 @@ def block_coverage(units: pd.DataFrame, games: pd.DataFrame) -> dict:
     if "rapm_orapm" in games:
         intl = games["source"] == "intl"
         out["rolling_rapm_share_intl_rows"] = float(games.loc[intl, "rapm_orapm"].notna().mean()) if intl.any() else None
+    if "league_strength" in games:
+        intl = games["source"] == "intl"
+        out["league_strength_share_intl_rows"] = float(games.loc[intl, "league_strength"].notna().mean()) if intl.any() else None
     return out
 
 
@@ -1189,7 +1379,8 @@ def build_tables(stores: Stores, *, seasons=(2003, 2026), lag_days: int = 1, gap
     aux = {name: table for name, table in (("player_prior_league", prior_league_table(stores)),
                                            ("destination_context", destination_context(stores, seasons)),
                                            ("intl_rapm_anchor", intl_rapm_anchor_table(stores)),
-                                           ("on3_rankings", on3_table(stores))) if table is not None}
+                                           ("on3_rankings", on3_table(stores)),
+                                           ("lower_division_lines", lower_division_table(stores))) if table is not None}   # D-101
     units = build_units(stores, ncaa, team_games, games, lag_days=lag_days, seasons=seasons, aux=aux)
     relabelled = games[(games["source"] == "intl") & (games["label_agrees_with_bucket"] == False)]  # noqa: E712
     ambiguous = intl_periods[intl_periods["majority_share"] < 0.9] if "majority_share" in intl_periods else intl_periods.iloc[0:0]

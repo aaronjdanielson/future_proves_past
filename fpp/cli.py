@@ -110,6 +110,12 @@ def main(argv=None) -> int:
     train.add_argument("--head-hidden", type=int, default=0, help="D-074: GELU hidden layer of this size before the outcome heads (0 = registered linear heads)")
     train.add_argument("--attention-pool", action="store_true", help="D-074: learned attention mean over the games in each channel's fusion input")
     train.add_argument("--lr-decay", type=float, default=1.0, help="D-074: multiply the learning rate by this factor at every epoch without improvement (1 = off)")
+    train.add_argument("--history-dropout", type=float, default=0.0,
+                       help="D-097: remove a forward example's whole international/national history with this probability during training")
+    train.add_argument("--history-dropout-scope", choices=["any", "no-ncaa"], default="any",
+                       help="D-097: 'any' drops the history of every forward example that has one; 'no-ncaa' only of examples without a prior NCAA season")
+    train.add_argument("--static-branch", action="store_true",
+                       help="D-097: static-only branch trained by forward examples, blended with the history representation by an evidence gate")
     train.add_argument("--no-row-guard", dest="row_guard", action="store_false",
                        help="D-095: keep the pre-D-095 rows (unresolved competition periods still reach forward histories, "
                             "normalization and the pool); only for exact pairing with runs trained before D-095")
@@ -191,7 +197,8 @@ def main(argv=None) -> int:
                               width=args.width, hidden=args.hidden, direction_film=args.direction_film, future_weight=args.future_weight,
                               game_dropout=args.game_dropout, average_last=args.average_last,
                               head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay,
-                              row_guard=args.row_guard)
+                              row_guard=args.row_guard, history_dropout=args.history_dropout, static_branch=args.static_branch,
+                              history_dropout_scope=args.history_dropout_scope)
             result = {"saved": str(args.out), "arm": args.arm, "model": args.model, "fold": args.fold, "seed": args.seed,
                       "counts": payload["counts"], "training": {"epochs_run": payload["training"]["epochs_run"],
                                                                  "best_stop_nll": payload["training"]["best_stop_nll"],

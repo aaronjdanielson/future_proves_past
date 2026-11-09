@@ -132,8 +132,9 @@ ARMS = {"A", "AR", "B", "C", "C_shuf"}
 
 
 def pretrain(tower, *, store, normalizer, cutoff_days: float, heldout, seed: int, epochs: int, examples_per_epoch: int,
-             batch_size: int, lr: float, nodes: int, out_path: Path, excluded_rows=None) -> dict:
-    """The registered pool recipe (D-032): next-game prediction on the fold's pool, one checkpoint."""
+             batch_size: int, lr: float, nodes: int, out_path: Path, excluded_rows=None, contract: dict | None = None) -> dict:
+    """The registered pool recipe (D-032): next-game prediction on the fold's pool, one checkpoint. ``contract``
+    (D-095) is everything the checkpoint depends on; it is stored in the manifest and its digest keys the cache."""
     from ..model.observation import OnceRoundedMinutesKernel
     from ..model.pool import MINUTES_STEP, PoolSampler, collate_pool
     from ..model.torch_likelihood import beta_binomial_logpmf
@@ -178,6 +179,9 @@ def pretrain(tower, *, store, normalizer, cutoff_days: float, heldout, seed: int
     info = {"path": str(out_path), "sha256": file_sha256(out_path), "pool_targets": len(sampler), "pool_players": sampler.n_players,
             "epochs": epochs, "examples_per_epoch": examples_per_epoch, "batch_size": batch_size, "lr": lr, "nodes": nodes,
             "minutes_step": MINUTES_STEP, "curve": curve, "seconds": time.time() - t0, "seed": seed}
+    if contract is not None:
+        from ..model.artifact import canonical_sha256
+        info.update({"contract": contract, "contract_sha256": canonical_sha256(contract)})
     write_manifest(out_path.with_suffix(".json"), info)
     return info
 
@@ -199,6 +203,19 @@ def _batches(examples, size: int, rng: np.random.Generator | None):
     order = np.arange(len(examples)) if rng is None else rng.permutation(len(examples))
     for i in range(0, len(order), size):
         yield [examples[j] for j in order[i:i + size]]
+
+
+HISTORY_DROPOUT_SCOPES = ("any", "no-ncaa")
+
+
+def _drop_histories(group, p: float, scope: str, rng: np.random.Generator):
+    """D-097 whole-history dropout over one forward batch. Scope "any" (the first V12hd25 runs): every forward example
+    with an international/national history. Scope "no-ncaa": only examples without a prior NCAA season, so each
+    augmented example looks like a no-history freshman and returners keep their history and clocks. The RNG is drawn
+    only for examples in scope, so "any" reproduces the first runs exactly."""
+    if scope == "any":
+        return [F.drop_history(e, p, rng) for e in group]
+    return [e if e.ncaa.present else F.drop_history(e, p, rng) for e in group]
 
 
 def _decay_lr(optimizer, factor: float) -> float:
@@ -310,7 +327,10 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             width: int = 32, hidden: int = 64, direction_film: bool = False, future_weight: float = 0.0,
             game_dropout: float = 0.0, average_last: int = 1,
             head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0,
-            row_guard: bool = True, test_season: int | None = None) -> dict:
+            row_guard: bool = True, test_season: int | None = None, history_dropout: float = 0.0,
+            static_branch: bool = False, history_dropout_scope: str = "any") -> dict:
+    if history_dropout_scope not in HISTORY_DROPOUT_SCOPES:
+        raise ValueError(f"history_dropout_scope must be one of {HISTORY_DROPOUT_SCOPES}")
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {sorted(ARMS)}; D (C plus forward fine-tuning) is not implemented")
     if cross_stop not in (None, 0, 1):
@@ -394,8 +414,10 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         train, recon_test, held_players = split_reconstruction_holdout(train, recon_holdout_share, np.random.default_rng(seed + 13))
         recon_holdout = {"share": recon_holdout_share, "players": len(held_players), "windows": len(recon_test),
                          "units": len({e.unit_id for e in recon_test}),
-                         "definition": "reconstruction players held out entirely (forward and reconstruction examples); their windows "
-                                       "are scored after training: later international/national play -> known NCAA season"}
+                         "definition": "reconstruction players' supervised examples held out (forward and reconstruction); their windows "
+                                       "are scored after training: later international/national play -> known NCAA season",
+                         "scope": ("supervised-label holdout (D-095): the players' games still enter the fold's normalization "
+                                   "statistics and, for pretraining arms, the pool; not a complete player holdout")}
     shuffle_info = shuffle_reconstruction_targets(train, ds.train_units, np.random.default_rng(seed + 7)) if arm == "C_shuf" else None
     forward_examples = [e for e in train if e.direction == "-"]
     recon_examples = [e for e in train if e.direction == "+"]
@@ -433,22 +455,40 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         from ..model.pool import CONTEXT_FIELDS
         tower = ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_context=len(CONTEXT_FIELDS),
                                n_fields=n_fields, n_static=n_static, width=width, hidden=hidden, direction_film=direction_film,
-                               future_head=future_weight > 0, head_hidden=head_hidden, attention_pool=attention_pool)
-        ckpt = Path(pretrained_dir) / f"pool_{fold_season}_{seed}.pt"
+                               future_head=future_weight > 0, head_hidden=head_hidden, attention_pool=attention_pool,
+                               static_branch=static_branch)
+        # D-095: the cache key is the digest of the pool's full contract (data, preprocessing, held-out players,
+        # exclusions, row policy, architecture, recipe, code), so B, C and C_shuf share a checkpoint only when it is
+        # genuinely the same pretraining; anything else builds its own. Pre-D-095 checkpoints (pool_{fold}_{seed}.pt)
+        # are never matched.
+        from ..model import pool as pool_module, torch_likelihood as lik_module, tower as tower_module
+        from ..model.artifact import canonical_sha256, code_sha256, pool_contract
+        settings = {"fold": fold_season, "seed": seed, "training_cutoff": str(fold.training_cutoff.date()), "epochs": pretrain_epochs,
+                    "examples_per_epoch": pretrain_examples, "batch_size": batch_size, "lr": lr, "nodes": nodes_train}
+        contract = pool_contract(tables_sha256=tab["manifest"].get("payload_sha256"), schema=fs.describe(), store=store,
+                                 normalizer=ds.normalizer, heldout=ds.heldout, excluded_rows=ds.excluded_rows,
+                                 architecture=tower.architecture, vocab_sizes=vocab_sizes, static_sizes=static_sizes,
+                                 n_context=len(CONTEXT_FIELDS), settings=settings,
+                                 code=code_sha256(pretrain, pool_module, tower_module, lik_module, F))
+        contract_sha = canonical_sha256(contract)
+        ckpt = Path(pretrained_dir) / f"pool_{fold_season}_{seed}_{contract_sha[:12]}.pt"
         if ckpt.exists():
             pretrained_info = load_manifest(ckpt.with_suffix(".json"))
             if pretrained_info["sha256"] != file_sha256(ckpt):
                 raise ValueError("Pretrained checkpoint does not match its manifest")
+            if pretrained_info.get("contract_sha256") != contract_sha:
+                raise ValueError(f"Pretrained checkpoint {ckpt.name} was built under a different contract")
         else:
             pretrained_info = pretrain(tower, store=store, normalizer=ds.normalizer, cutoff_days=float((fold.training_cutoff - pd.Timestamp("1970-01-01")).days),
                                        heldout=ds.heldout, seed=seed, epochs=pretrain_epochs, examples_per_epoch=pretrain_examples,
-                                       batch_size=batch_size, lr=lr, nodes=nodes_train, out_path=ckpt, excluded_rows=ds.excluded_rows)
+                                       batch_size=batch_size, lr=lr, nodes=nodes_train, out_path=ckpt, excluded_rows=ds.excluded_rows,
+                                       contract=contract)
         tower.load_state_dict(torch.load(ckpt, weights_only=True))
         tower.reset_heads(base_model.reference())     # forward heads start at the fitted intercepts, as in A, same architecture (D-095)
     else:
         tower = (ReferenceTower(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static, width=width, hidden=hidden,
                                 direction_film=direction_film, future_head=future_weight > 0, head_hidden=head_hidden,
-                                attention_pool=attention_pool) if model_kind == "tower"
+                                attention_pool=attention_pool, static_branch=static_branch) if model_kind == "tower"
                  else AggregateBaseline(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static))
     optimizer = torch.optim.Adam(tower.parameters(), lr=lr)
     curve, best, best_state, bad_epochs = [], math.inf, None, 0
@@ -466,6 +506,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     forward_rng = np.random.default_rng(seed)
     recon_rng = np.random.default_rng(seed + 11)
     aug_rng = np.random.default_rng(seed + 23)          # D-070 game dropout
+    hist_rng = np.random.default_rng(seed + 29)         # D-097 whole-history dropout
     epoch_states = {}                                   # D-070 checkpoint averaging: epoch -> state dict
     updates = {"forward_steps": 0, "forward_examples": 0, "reconstruction_examples": 0, "lambda_plus": lambda_plus}
 
@@ -494,6 +535,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         recon_rng.bit_generator.state = ck["recon_rng"]
         if "aug_rng" in ck:
             aug_rng.bit_generator.state = ck["aug_rng"]
+        if "hist_rng" in ck:
+            hist_rng.bit_generator.state = ck["hist_rng"]
         epoch_states = ck.get("epoch_states", {})
         torch.set_rng_state(ck["torch_rng"])
         epoch_start = int(ck["epoch"])
@@ -503,7 +546,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         torch.save({"tower": tower.state_dict(), "optimizer": optimizer.state_dict(), "epoch": done, "curve": curve, "best": best,
                     "best_state": best_state, "bad_epochs": bad_epochs, "updates": updates, "active": active,
                     "forward_rng": forward_rng.bit_generator.state, "recon_rng": recon_rng.bit_generator.state,
-                    "aug_rng": aug_rng.bit_generator.state, "epoch_states": epoch_states,
+                    "aug_rng": aug_rng.bit_generator.state, "hist_rng": hist_rng.bit_generator.state, "epoch_states": epoch_states,
                     "torch_rng": torch.get_rng_state()}, checkpoint_path)
         best_epoch = min(curve, key=lambda c: c["stop_nll"])["epoch"] if curve else None
         _status("training", epochs_completed=done, epochs_max=epochs, patience=patience, best_epoch=best_epoch,
@@ -517,6 +560,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         recon_order = recon_rng.permutation(len(recon_examples)) if (lambda_plus > 0 and recon_examples) else None
         recon_pos = 0
         for group in _batches(forward_examples, batch_size, forward_rng):
+            if history_dropout > 0:          # D-097: whole-history dropout on forward examples (own RNG stream)
+                group = _drop_histories(group, history_dropout, history_dropout_scope, hist_rng)
             if game_dropout > 0:
                 group = [F.drop_games(e, game_dropout, aug_rng) for e in group]
             loss, bad = _term(F.collate(group), 1.0)
@@ -620,6 +665,32 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     out.mkdir(parents=True, exist_ok=True)
     per_unit.to_csv(out / "per_unit.csv", index=False)
     torch.save(best_state, out / "tower_state.pt")
+    # D-095: one artifact with everything needed to apply the model as fitted (weights, architecture, schema, vocabularies,
+    # normalizer, row policy, season roles, table identity, conventions); reports and forecasts restore from it.
+    from ..model.artifact import FittedModel, canonical_sha256, code_sha256, save_fitted_model
+    from ..model import torch_likelihood as lik_module, tower as tower_module
+    from ..model.pool import CONTEXT_FIELDS as _CONTEXT
+    fitted = FittedModel(
+        model_kind=model_kind,
+        constructor={"vocab_sizes": vocab_sizes, "static_sizes": static_sizes,
+                     "n_context": len(_CONTEXT) if arm in PRETRAIN_ARMS else 0, "n_fields": n_fields, "n_static": n_static,
+                     "architecture": dict(getattr(tower, "architecture", {}))},
+        state_dict=best_state, feature_schema={**fs.describe(), "missing_game_fields": list(store.missing_fields)},
+        vocab=store.vocab, static_vocab=ds.static_vocab, normalizer=ds.normalizer, row_guard=bool(row_guard),
+        seasons={"fold": fold_season, "train_through": fold_season - 2, "stop": fold_season - 1, "protocol_test": protocol_test,
+                 "deploy": bool(deploy), "cross_stop": cross_stop},
+        tables_manifest={"payload_sha256": tab["manifest"].get("payload_sha256"),
+                         "tables": {k: v["sha256"] for k, v in tab["manifest"]["tables"].items()}},
+        data_policy={"normalizer_exclusion": True, "post_first_season_logs_excluded": bool(exclude_post_first_season_logs),
+                     "label_scope": label_scope, "heldout_players": len(ds.heldout),
+                     "heldout_players_sha256": canonical_sha256(sorted(int(p) for p in ds.heldout))},
+        conventions={"score": "marginal NLL of (G, J, M, B), overtime summed out", "minutes_kernel": "once-rounded season total",
+                     "eval_quadrature_nodes": int(eval_quadrature["nodes"]) if eval_quadrature else int(nodes_eval),
+                     "schedule": "realized S (scenario)", "foul_limit_per_game": 5},
+        baseline_parameters={k: (v.tolist() if v.dim() else float(v)) for k, v in base_params.items()},
+        code=code_sha256(F, tower_module, lik_module))
+    artifact_info = {"path": "model_artifact.pt", "sha256": save_fitted_model(out / "model_artifact.pt", fitted),
+                     "format": fitted.format}
     if recon_holdout is not None and recon_test:
         # D-042: translation test on unseen players — their NCAA season predicted from their later play alone.
         r_tower = np.asarray(_score(lik_eval, recon_test, batch_size=batch_size, tower=tower), dtype=float)
@@ -652,7 +723,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "weighting": weighting, "first_year_share": first_year_share, "stop_criterion": stop_criterion,
                    "feature_schema": {**fs.describe(), "missing_game_fields": list(store.missing_fields)},
                    "architecture": getattr(tower, "architecture", dict(ARCHITECTURE_DEFAULTS)),
-                   "future_weight": future_weight, "game_dropout": game_dropout, "average_last": average_last, "lr_decay": lr_decay,
+                   "future_weight": future_weight, "game_dropout": game_dropout, "history_dropout": history_dropout, "history_dropout_scope": history_dropout_scope, "average_last": average_last, "lr_decay": lr_decay,
                    "post_first_season_logs": ("excluded from every input channel, the pool and reconstruction (D-041 strict control)"
                                               if exclude_post_first_season_logs else "included"),
                    "excluded_game_rows": int(ds.excluded_rows.sum()) if ds.excluded_rows is not None else 0,
@@ -673,7 +744,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
         "numerical": {"stop_set_quadrature": stop_quadrature, "eval_quadrature": eval_quadrature,
                       "baseline_quadrature": base_quadrature, "kernel_sensitivity": kernel_sensitivity},
         "reconstruction_heldout": recon_holdout,
-        "test_registration": ({"path": str(test_registration), "sha256": file_sha256(Path(test_registration))} if test_registration else None),
+        "artifact": artifact_info,
+        "test_registration":({"path": str(test_registration), "sha256": file_sha256(Path(test_registration))} if test_registration else None),
         "counts": {"train_forward": n_fwd, "train_reconstruction": n_rec, "stop_units": len(stop), "eval_units": len(evaluate),
                    "eval_invalid": int((~finite).sum()), **mass_shares,
                    "future_targets": int(sum(bool(e.targets.get("future_known", False)) for e in train))},
