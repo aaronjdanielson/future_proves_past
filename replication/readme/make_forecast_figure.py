@@ -3,9 +3,9 @@
     python3 replication/readme/make_forecast_figure.py [--docs docs] [--out assets] [--up 7] [--down 5]
 
 Reads only files in the release (`results_docs.zip`, unpacked into docs/) and the public cohort list:
-    docs/FORECASTS_2026_27_deploy_v11_pooled.json          the model with the post-NCAA data (frozen 2026-10-01)
-    docs/FORECASTS_2026_27_deploy_control_v11_pooled.json  the strict control
-    docs/FORECAST_RATES_2026_27_deploy_v11_pooled.json     rate forecasts (PER with and without)
+    docs/FORECASTS_2026_27_deploy_v19_pooled.json          the model with the post-NCAA data (frozen 2026-11-10)
+    docs/FORECASTS_2026_27_deploy_control_v19_pooled.json  the strict control
+    docs/FORECAST_RATES_2026_27_deploy_v19_pooled.json     rate forecasts (PER with and without)
     data/forecast_2027_cohort.csv                          names, where the frozen files left one blank
 Players: the --up largest and --down largest changes in P(400+ minutes) between the two models, the same rule as the
 README's tables. Panels: P(400+ minutes); season minutes, mean and 90% interval (5th to 95th percentile of 2,000
@@ -34,12 +34,13 @@ THEMES = {
 
 
 def load(docs: Path, select: str, up: int, down: int) -> pd.DataFrame:
-    w = pd.DataFrame(json.loads((docs / "FORECASTS_2026_27_deploy_v11_pooled.json").read_text()))
-    c = pd.DataFrame(json.loads((docs / "FORECASTS_2026_27_deploy_control_v11_pooled.json").read_text()))
-    r = pd.DataFrame(json.loads((docs / "FORECAST_RATES_2026_27_deploy_v11_pooled.json").read_text()))
+    w = pd.DataFrame(json.loads((docs / "FORECASTS_2026_27_deploy_v19_pooled.json").read_text()))
+    c = pd.DataFrame(json.loads((docs / "FORECASTS_2026_27_deploy_control_v19_pooled.json").read_text()))
+    r = pd.DataFrame(json.loads((docs / "FORECAST_RATES_2026_27_deploy_v19_pooled.json").read_text()))
     cohort = pd.read_csv(ROOT / "data" / "forecast_2027_cohort.csv")[["player_id", "name", "nationality", "of_interest"]]
     cohort = cohort.rename(columns={"name": "cohort_name"})
     m = w.merge(c[["player_id", "p_rotation_400min", "minutes"]], on="player_id", suffixes=("", "_c"))
+    m = m.drop(columns=[k for k in ("nationality", "of_interest") if k in m.columns])  # frozen rows carry them from v19 on; the cohort list is the public copy
     m = m.merge(r[["player_id", "per_with", "per_without"]], on="player_id").merge(cohort, on="player_id", how="left")
     m["name"] = m["name"].where(m["name"].notna() & (m["name"].astype(str) != "nan"), m["cohort_name"])
     m["delta"] = m["p_rotation_400min"] - m["p_rotation_400min_c"]
@@ -131,7 +132,7 @@ def draw(rows: pd.DataFrame, theme: str, out: Path, title: str, stem: str) -> Pa
     fig.text(lx + 0.018, ly, "with post-NCAA data", color=c["ink"], fontsize=10, va="center")
     fig.text(lx + 0.175, ly, "●", color=c["red"], fontsize=13, va="center")
     fig.text(lx + 0.193, ly, "without", color=c["ink"], fontsize=10, va="center")
-    fig.text(lx + 0.27, ly, "frozen 1 October 2026; outcomes arrive in March 2027", color=c["muted"], fontsize=9.5, va="center")
+    fig.text(lx + 0.27, ly, "inputs frozen 1 October 2026, issued 10 November 2026; outcomes arrive in March 2027", color=c["muted"], fontsize=9.5, va="center")
 
     out.mkdir(parents=True, exist_ok=True)
     path = out / f"{stem}{'' if theme == 'light' else '_dark'}.png"

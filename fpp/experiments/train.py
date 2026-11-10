@@ -129,6 +129,27 @@ def shuffle_reconstruction_targets(examples, units: pd.DataFrame, rng: np.random
 PRETRAIN_ARMS = {"B", "C", "C_shuf"}
 RECON_ARMS = {"C", "C_shuf", "AR"}       # AR = A plus reconstruction, no pretraining; D (C + forward fine-tuning) is not implemented
 ARMS = {"A", "AR", "B", "C", "C_shuf"}
+BATCH_NORMALIZERS = ("weight", "size")
+
+
+class NonFiniteLikelihoodError(RuntimeError):
+    """A training batch produced a non-finite log-likelihood row (D-104, finding 1). The run stops and names the rows:
+    every training log so far records zero such rows, so a silent filter could only hide a data or numerical fault."""
+
+
+def batch_loss(lp: torch.Tensor, weight: torch.Tensor, ids, normalizer: str = "weight") -> torch.Tensor:
+    """Weighted mean negative log-likelihood of one training batch. ``normalizer="weight"`` divides by the batch's weight
+    sum (the registered recipe: a self-normalized estimate of the weighted objective); ``"size"`` divides by the batch
+    size, the fixed normalizer when the weights average one per direction (D-104, finding 2; opt-in until a matched pair
+    adopts it). A non-finite row raises ``NonFiniteLikelihoodError`` naming the offending ids."""
+    finite = torch.isfinite(lp)
+    if not bool(finite.all()):
+        bad = [ids[i] for i in torch.nonzero(~finite).flatten().tolist()]
+        raise NonFiniteLikelihoodError(f"{len(bad)} of {len(ids)} likelihood rows are non-finite in a training batch; ids {bad[:10]}")
+    if normalizer not in BATCH_NORMALIZERS:
+        raise ValueError(f"normalizer must be one of {BATCH_NORMALIZERS}")
+    total = (weight * (-lp)).sum()
+    return total / weight.sum() if normalizer == "weight" else total / float(len(weight))
 
 
 def pretrain(tower, *, store, normalizer, cutoff_days: float, heldout, seed: int, epochs: int, examples_per_epoch: int,
@@ -160,10 +181,10 @@ def pretrain(tower, *, store, normalizer, cutoff_days: float, heldout, seed: int
             starts_term = beta_binomial_logpmf(sb.starts, sb.games, params["alpha_j"], params["beta_j"])
             lp = torch.where(batch["starts_known"], lp, lp - starts_term)      # unknown starter: no starts evidence
             finite = torch.isfinite(lp)
-            invalid += int((~finite).sum())
-            if not bool(finite.any()):
-                continue
-            loss = (-lp[finite]).mean()
+            if not bool(finite.all()):      # D-104: stop and name the rows instead of skipping them
+                bad = [batch["player_id"][i] for i in torch.nonzero(~finite).flatten().tolist()]
+                raise NonFiniteLikelihoodError(f"{len(bad)} of {len(lp)} pretraining likelihood rows are non-finite; players {bad[:10]}")
+            loss = (-lp).mean()
             if not torch.isfinite(loss):
                 raise RuntimeError("Pretraining loss became non-finite; the pool objective diverged")
             optimizer.zero_grad(set_to_none=True)
@@ -328,9 +349,16 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             game_dropout: float = 0.0, average_last: int = 1,
             head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0,
             row_guard: bool = True, test_season: int | None = None, history_dropout: float = 0.0,
-            static_branch: bool = False, history_dropout_scope: str = "any") -> dict:
+            static_branch: bool = False, history_dropout_scope: str = "any", batch_normalizer: str = "weight",
+            teacher_caches=None, distill_alpha: float = 0.0, distill_beta: float = 0.0) -> dict:
     if history_dropout_scope not in HISTORY_DROPOUT_SCOPES:
         raise ValueError(f"history_dropout_scope must be one of {HISTORY_DROPOUT_SCOPES}")
+    if batch_normalizer not in BATCH_NORMALIZERS:
+        raise ValueError(f"batch_normalizer must be one of {BATCH_NORMALIZERS}")
+    if not (0.0 <= distill_alpha < 1.0) or distill_beta < 0:
+        raise ValueError("distill_alpha must lie in [0, 1) and distill_beta be non-negative (D-109/D-110)")
+    if (distill_alpha > 0 or distill_beta > 0) and not teacher_caches:
+        raise ValueError("distillation weights need --teacher-cache directories")
     if arm not in ARMS:
         raise ValueError(f"arm must be one of {sorted(ARMS)}; D (C plus forward fine-tuning) is not implemented")
     if cross_stop not in (None, 0, 1):
@@ -490,7 +518,16 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                                 direction_film=direction_film, future_head=future_weight > 0, head_hidden=head_hidden,
                                 attention_pool=attention_pool, static_branch=static_branch) if model_kind == "tower"
                  else AggregateBaseline(vocab_sizes, static_sizes, base_model.reference(), n_fields=n_fields, n_static=n_static))
-    optimizer = torch.optim.Adam(tower.parameters(), lr=lr)
+    # Distillation from cross-fitted teachers (D-109/D-110): targets are validated against this run's fold, cutoff, tables and
+    # feature schema and indexed by outcome; the per-teacher alignments are training-only parameters.
+    targets, align = None, None
+    if teacher_caches:
+        from .distill import Alignments, load_teacher_caches
+        unit_player = {str(u): int(p) for u, p in zip(ds.train_units["unit_id"], ds.train_units["player_id"])}
+        targets = load_teacher_caches(teacher_caches, fold_season=fold_season, training_cutoff=str(ds.fold.training_cutoff.date()),
+                                      tables_sha256=tab["manifest"].get("payload_sha256"), feature_schema=fs.describe(), unit_player=unit_player)
+        align = Alignments(targets.n_splits, width, targets.width) if distill_beta > 0 else None
+    optimizer = torch.optim.Adam(list(tower.parameters()) + (list(align.parameters()) if align is not None else []), lr=lr)
     curve, best, best_state, bad_epochs = [], math.inf, None, 0
 
     def _stop_scores(scores: np.ndarray) -> tuple[float, float]:
@@ -510,25 +547,44 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     epoch_states = {}                                   # D-070 checkpoint averaging: epoch -> state dict
     updates = {"forward_steps": 0, "forward_examples": 0, "reconstruction_examples": 0, "lambda_plus": lambda_plus}
 
-    def _term(batch, sel_weight):
+    def _term(batch, sel_weight, distill: bool = False):
         sb = season_batch(batch)
-        params = tower(batch)
-        lp, _ = lik_train.log_prob(sb, params=params)
-        finite = torch.isfinite(lp)
-        w = batch["weight"]
-        term = (w[finite] * (-lp[finite])).sum() / w[finite].sum() if bool(finite.any()) else torch.zeros((), dtype=torch.float64)
+        found = targets.rows_for(batch["unit_id"]) if (distill and targets is not None and (distill_alpha > 0 or distill_beta > 0)) else None
+        if found is None:
+            params = tower(batch)
+            lp, _ = lik_train.log_prob(sb, params=params)
+            term = batch_loss(lp, batch["weight"], batch["unit_id"], batch_normalizer)   # D-104: a non-finite row stops the run
+        else:
+            # Forward minibatch with teacher targets: ℓ_other + (1 − αR) ℓ_shoot + αR·CE per unit (the makes factor leaves the
+            # quadrature exactly), the registered normalizer, plus β times the per-teacher representation match (D-110).
+            from .distill import distilled_rows, representation_loss, shooting_cross_entropy, student_makes_logprob
+            rows, pos, omega, split = found
+            u = tower.represent(batch)
+            params = tower.heads(u)
+            if tower.future_head is not None:
+                params["future"] = tower.future_head(u).squeeze(-1)
+            lp, _ = lik_train.log_prob(sb, params=params)
+            has = torch.zeros(len(lp), dtype=torch.bool)
+            has[torch.as_tensor(pos)] = True
+            lp_makes = student_makes_logprob(params, batch["counts"])
+            ce = shooting_cross_entropy(params, batch["counts"], targets, rows, pos, omega) if distill_alpha > 0 else torch.zeros_like(lp)
+            term = batch_loss(-distilled_rows(lp, lp_makes, ce, has, distill_alpha), batch["weight"], batch["unit_id"], batch_normalizer)
+            if align is not None:
+                term = term + distill_beta * representation_loss(u, align, targets, rows, pos, omega, split, batch["weight"])
         if future_weight > 0 and "future" in params:
             known = batch["future_known"]
             if bool(known.any()):           # D-070: squared error on the standardized later-career production
                 err = (params["future"][known].double() - batch["future"][known].double()) ** 2
                 term = term + future_weight * err.mean()
-        return sel_weight * term, int((~finite).sum())
+        return sel_weight * term
 
     # Epoch checkpoints with optimizer and RNG state; a status record; resumption (D-040).
     epoch_start, active = 0, {"wall_seconds": 0.0, "cpu_seconds": 0.0}
     if resume and checkpoint_path.exists():
         ck = torch.load(checkpoint_path, weights_only=False)
         tower.load_state_dict(ck["tower"])
+        if align is not None and ck.get("align") is not None:
+            align.load_state_dict(ck["align"])
         optimizer.load_state_dict(ck["optimizer"])
         curve, best, best_state, bad_epochs, updates, active = ck["curve"], ck["best"], ck["best_state"], ck["bad_epochs"], ck["updates"], ck["active"]
         forward_rng.bit_generator.state = ck["forward_rng"]
@@ -544,6 +600,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
 
     def _checkpoint(done: int):
         torch.save({"tower": tower.state_dict(), "optimizer": optimizer.state_dict(), "epoch": done, "curve": curve, "best": best,
+                    "align": None if align is None else align.state_dict(),
                     "best_state": best_state, "bad_epochs": bad_epochs, "updates": updates, "active": active,
                     "forward_rng": forward_rng.bit_generator.state, "recon_rng": recon_rng.bit_generator.state,
                     "aug_rng": aug_rng.bit_generator.state, "hist_rng": hist_rng.bit_generator.state, "epoch_states": epoch_states,
@@ -556,7 +613,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     for epoch in range(epoch_start, epochs):
         tower.train()
         t_epoch, c_epoch = time.time(), time.process_time()
-        losses, invalid = [], 0
+        losses, invalid = [], 0        # invalid_rows stays in the curve for readers of older logs; since D-104 a non-finite row stops the run
         recon_order = recon_rng.permutation(len(recon_examples)) if (lambda_plus > 0 and recon_examples) else None
         recon_pos = 0
         for group in _batches(forward_examples, batch_size, forward_rng):
@@ -564,8 +621,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                 group = _drop_histories(group, history_dropout, history_dropout_scope, hist_rng)
             if game_dropout > 0:
                 group = [F.drop_games(e, game_dropout, aug_rng) for e in group]
-            loss, bad = _term(F.collate(group), 1.0)
-            invalid += bad
+            loss = _term(F.collate(group), 1.0, distill=True)
             updates["forward_steps"] += 1
             updates["forward_examples"] += len(group)
             if recon_order is not None:
@@ -575,8 +631,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                 recon_pos += batch_size
                 if game_dropout > 0:
                     rgroup = [F.drop_games(e, game_dropout, aug_rng) for e in rgroup]
-                aux, bad = _term(F.collate(rgroup), lambda_plus)
-                loss, invalid = loss + aux, invalid + bad
+                aux = _term(F.collate(rgroup), lambda_plus)
+                loss = loss + aux
                 updates["reconstruction_examples"] += len(rgroup)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -665,6 +721,8 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     out.mkdir(parents=True, exist_ok=True)
     per_unit.to_csv(out / "per_unit.csv", index=False)
     torch.save(best_state, out / "tower_state.pt")
+    if align is not None:                                     # training-only per-teacher alignments, kept for inspection (D-110)
+        torch.save(align.state_dict(), out / "alignments.pt")
     # D-095: one artifact with everything needed to apply the model as fitted (weights, architecture, schema, vocabularies,
     # normalizer, row policy, season roles, table identity, conventions); reports and forecasts restore from it.
     from ..model.artifact import FittedModel, canonical_sha256, code_sha256, save_fitted_model
@@ -724,6 +782,9 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "feature_schema": {**fs.describe(), "missing_game_fields": list(store.missing_fields)},
                    "architecture": getattr(tower, "architecture", dict(ARCHITECTURE_DEFAULTS)),
                    "future_weight": future_weight, "game_dropout": game_dropout, "history_dropout": history_dropout, "history_dropout_scope": history_dropout_scope, "average_last": average_last, "lr_decay": lr_decay,
+                   "batch_normalizer": batch_normalizer,     # D-104: "weight" is the registered recipe; "size" is opt-in until a matched pair adopts it
+                   "distillation": None if targets is None else {**targets.describe(), "alpha": distill_alpha, "beta": distill_beta,
+                                                                  "caches": [str(c) for c in teacher_caches], "shooting_cross_entropy": "exact finite sums (D-109 item 5)"},
                    "post_first_season_logs": ("excluded from every input channel, the pool and reconstruction (D-041 strict control)"
                                               if exclude_post_first_season_logs else "included"),
                    "excluded_game_rows": int(ds.excluded_rows.sum()) if ds.excluded_rows is not None else 0,

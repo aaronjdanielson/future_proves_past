@@ -116,11 +116,42 @@ def main(argv=None) -> int:
                        help="D-097: 'any' drops the history of every forward example that has one; 'no-ncaa' only of examples without a prior NCAA season")
     train.add_argument("--static-branch", action="store_true",
                        help="D-097: static-only branch trained by forward examples, blended with the history representation by an evidence gate")
+    train.add_argument("--batch-normalizer", choices=["weight", "size"], default="weight",
+                       help="D-104: divide each minibatch's weighted loss by its weight sum (registered) or by the batch size "
+                            "(fixed normalizer; opt-in until a matched pair adopts it)")
     train.add_argument("--no-row-guard", dest="row_guard", action="store_false",
                        help="D-095: keep the pre-D-095 rows (unresolved competition periods still reach forward histories, "
                             "normalization and the pool); only for exact pairing with runs trained before D-095")
     train.add_argument("--deploy", action="store_true",
                        help="deployment (D-051): fold = test season + 1, train through the test season - 1, early-stop on the test season, no evaluation")
+    train.add_argument("--teacher-cache", type=Path, nargs="+", default=None,
+                       help="D-109/D-110: teacher directories (one per cross-fitting split) whose targets distil into this student")
+    train.add_argument("--distill-alpha", type=float, default=0.0,
+                       help="D-109: share of a paired unit's shooting loss replaced by the teacher cross-entropy, in [0, 1)")
+    train.add_argument("--distill-beta", type=float, default=0.0, help="D-110: weight of the per-teacher representation match")
+    teacher = sub.add_parser("teacher", help="D-110: train a cross-fitted future-informed teacher on one split and write targets for the held-out split")
+    teacher.add_argument("--tables", type=Path, required=True)
+    teacher.add_argument("--fold", type=int, required=True)
+    teacher.add_argument("--splits", type=int, default=2, help="number of player splits (cross-fitting)")
+    teacher.add_argument("--split", type=int, required=True, help="the held-out split this teacher writes targets for")
+    teacher.add_argument("--no-future", dest="use_future", action="store_false", help="the no-future twin D⁰: the later-career branch is never read")
+    teacher.add_argument("--seed", type=int, default=20260901)
+    teacher.add_argument("--out", type=Path, required=True, help="New teacher directory")
+    teacher.add_argument("--epochs", type=int, default=20)
+    teacher.add_argument("--batch-size", type=int, default=256)
+    teacher.add_argument("--lr", type=float, default=1e-3)
+    teacher.add_argument("--nodes-train", type=int, default=24)
+    teacher.add_argument("--threads", type=int, default=8)
+    teacher.add_argument("--feature-schema", choices=["auto", "v7", "v8", "v9"], default="auto")
+    teacher.add_argument("--feature-blocks", default=None)
+    teacher.add_argument("--no-row-guard", dest="row_guard", action="store_false")
+    teacher.add_argument("--recon-horizon-years", default="none")
+    teacher.add_argument("--recon-k", default="1,2,3,all")
+    teacher.add_argument("--backward-reader", choices=["latest", "near"], default="latest")
+    teacher.add_argument("--width", type=int, default=32)
+    teacher.add_argument("--hidden", type=int, default=64)
+    teacher.add_argument("--teacher-lambda", type=float, default=1.0,
+                         help="D-110: weight of the window (future-informed) term against the missing-view term, each normalized separately")
     train.add_argument("--test-registration", type=Path,
                        help="one-shot test only: path to the written registration; its SHA-256 is recorded in the run manifest")
     train.add_argument("--resume", action="store_true", help="continue an unfinished run from its last epoch checkpoint (D-040)")
@@ -194,16 +225,29 @@ def main(argv=None) -> int:
                               allow_test=args.test_registration is not None and not args.deploy, test_registration=args.test_registration,
                               deploy=args.deploy, label_scope=args.label_scope, weighting=args.weighting, first_year_share=fy_share,
                               feature_schema=args.feature_schema, feature_blocks=blocks, cross_stop=args.cross_stop,
+                              teacher_caches=args.teacher_cache, distill_alpha=args.distill_alpha, distill_beta=args.distill_beta,
                               width=args.width, hidden=args.hidden, direction_film=args.direction_film, future_weight=args.future_weight,
                               game_dropout=args.game_dropout, average_last=args.average_last,
                               head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay,
                               row_guard=args.row_guard, history_dropout=args.history_dropout, static_branch=args.static_branch,
-                              history_dropout_scope=args.history_dropout_scope)
+                              history_dropout_scope=args.history_dropout_scope, batch_normalizer=args.batch_normalizer)
             result = {"saved": str(args.out), "arm": args.arm, "model": args.model, "fold": args.fold, "seed": args.seed,
                       "counts": payload["counts"], "training": {"epochs_run": payload["training"]["epochs_run"],
                                                                  "best_stop_nll": payload["training"]["best_stop_nll"],
                                                                  "baseline_stop_nll": payload["baseline"]["stop_nll"]},
                       "evaluation": payload["evaluation"], "timing": payload["timing"]}
+        elif args.command == "teacher":
+            from .experiments.teacher import train_teacher
+            horizon = None if str(args.recon_horizon_years).lower() == "none" else int(float(args.recon_horizon_years))
+            recon_k = tuple(None if part.strip().lower() == "all" else int(part) for part in str(args.recon_k).split(",") if part.strip())
+            blocks = None if args.feature_blocks is None else tuple(b.strip() for b in str(args.feature_blocks).split(",") if b.strip())
+            meta = train_teacher(tables=args.tables, fold_season=args.fold, n_splits=args.splits, split=args.split, use_future=args.use_future,
+                                 out=args.out, seed=args.seed, epochs=args.epochs, batch_size=args.batch_size, lr=args.lr, nodes_train=args.nodes_train,
+                                 threads=args.threads, feature_schema=args.feature_schema, feature_blocks=blocks, row_guard=args.row_guard,
+                                 recon_k=recon_k, recon_max_years=horizon, backward_reader=args.backward_reader, width=args.width, hidden=args.hidden,
+                                 teacher_lambda=args.teacher_lambda)
+            result = {"saved": str(args.out), "fold": args.fold, "split": args.split, "n_splits": args.splits, "use_future": args.use_future,
+                      "counts": meta["counts"], "checkpoint_sha256": meta["checkpoint_sha256"], "seconds": meta["seconds"]}
         elif args.command == "report-run":
             from .experiments.report import report_run
             payload = report_run(run=args.run, tables=args.tables, compare=args.compare, draws=args.draws, n_rescore=args.rescore,

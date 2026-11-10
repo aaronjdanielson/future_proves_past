@@ -170,63 +170,63 @@ There is a formal version of this. Projecting the fitted model onto standardized
 The prospective cohort is every 2026–27 freshman in his first NCAA roster season for whom the model has at least one tracked pre-college game: **282 players**, 220 of them international. By history: 141 club and national team, 47 club only, 69 national team only, 25 US showcase only. Median history: 28 tracked games; a quarter have 74 or more.
 
 > [!IMPORTANT]
-> These forecasts were frozen on 1 October 2026, before the season, and will be scored when it ends in March 2027. They are a commitment, not a validation.
+> The inputs were frozen on 1 October 2026, before the season; no 2026–27 game enters them (the latest NCAA game in the tables is from 6 April 2026). The forecasts were reissued on 10 November 2026, a week into the season, from models retrained with the production feature set, and will be scored when the season ends in March 2027. They are a commitment, not a validation. The 1 October forecasts from the earlier models remain in the `ssac27-abstract` release.
 
-All 282 were forecast by the deployment models: trained through 2024–25 plus half of the 2025–26 players and stopped on the other half, the two halves pooled; 2,000 simulated seasons per player, once with and once without the former players' careers in training. Minutes per game are conditional on appearing. The frozen files carry the run names and data digests.
+All 282 were forecast by the deployment models: trained with the production feature set through 2024–25 plus half of the 2025–26 players and stopped on the other half, twenty epochs each, the two halves pooled; 2,000 simulated seasons per player, once with and once without the former players' careers in training. Minutes per game are conditional on appearing. The frozen files carry the run names and data digests.
 
 <p align="center">
   <img src="assets/fig_forecast_2027_dark.png" alt="2026–27 forecasts for fourteen high-profile international freshmen: chance of a 400-minute season, season minutes and PER, with and without the post-NCAA data" width="860">
 </p>
 
-**High-profile international freshmen.** For the best-known arrivals the careers make the model more cautious about an immediate rotation role (Boumtje-Boumtje at Duke 0.95 → 0.83, Kusturica at UCLA 0.88 → 0.76) and slightly more hopeful for two Slovenians the control had written off (Tonejc at Rutgers and Morano Mahmutovic at Syracuse, from near zero to 0.07–0.08).
+**High-profile international freshmen.** For the best-known arrivals the two models nearly agree (Boumtje-Boumtje at Duke 0.89 with the careers against 0.91 without, Kusturica at UCLA 0.85 against 0.88). The careers raise Muurinen at Arkansas (0.54 → 0.63) and Stojkovic at St. John's (0.04 → 0.17) and lower Suigo at Villanova (0.74 → 0.55) and Sojic at TCU (0.34 → 0.05).
 
 <details>
 <summary><b>The numbers behind the figure</b></summary>
 
 | Player | Team | Nationality | Tracked games | P(400+ min) with / without | Min/game if plays | PER with / without |
 |---|---|---|---|---|---|---|
-| Joaquim Boumtje-Boumtje | Duke | Spain / United States | 43 | 0.83 / 0.95 | 19.8 | 20.1 / 23.8 |
-| Nikola Kusturica | UCLA | Serbia | 48 | 0.76 / 0.88 | 18.0 | 17.8 / 20.4 |
-| Kaan Onat | Tennessee-Martin | Turkiye | 59 | 0.65 / 0.81 | 20.0 | 13.7 / 12.6 |
-| Miikka Muurinen | Arkansas | Finland | 41 | 0.43 / 0.51 | 13.8 | 15.0 / 15.9 |
-| Milos Sojic | TCU | Serbia | 37 | 0.29 / 0.28 | 11.5 | 13.3 / 12.8 |
-| Luigi Suigo | Villanova | Italy | 74 | 0.27 / 0.31 | 12.0 | 14.7 / 15.6 |
-| Vuk Lazarevic | Ohio State | Serbia | 2 | 0.12 / 0.10 | 8.2 | 12.7 / 15.1 |
-| Arturas Butajevas | Florida | Lithuania | 50 | 0.10 / 0.19 | 7.8 | 12.7 / 12.8 |
-| Marcus Moller | Michigan | Denmark | 35 | 0.08 / 0.10 | 7.7 | 12.3 / 13.5 |
-| Martin Tonejc | Rutgers | Slovenia | 23 | 0.08 / 0.00 | 8.1 | 8.6 / 5.6 |
-| Mark Morano Mahmutovic | Syracuse | Slovenia | 68 | 0.07 / 0.00 | 7.8 | 9.2 / 7.5 |
-| Gunars Grinvalds | UCLA | Latvia | 47 | 0.07 / 0.03 | 7.1 | 9.2 / 8.1 |
-| Stefan Plisnic | VCU | Serbia | 49 | 0.06 / 0.06 | 7.6 | 11.1 / 10.5 |
-| Lazar Stojkovic | St. John's | Serbia | 36 | 0.06 / 0.13 | 7.0 | 10.8 / 11.9 |
+| Joaquim Boumtje-Boumtje | Duke | Spain / United States | 43 | 0.89 / 0.91 | 19.7 | 20.7 / 22.5 |
+| Nikola Kusturica | UCLA | Serbia | 48 | 0.85 / 0.88 | 19.2 | 15.9 / 17.6 |
+| Miikka Muurinen | Arkansas | Finland | 41 | 0.63 / 0.54 | 16.4 | 15.3 / 14.8 |
+| Kaan Onat | Tennessee-Martin | Turkiye | 59 | 0.63 / 0.57 | 20.4 | 13.2 / 11.9 |
+| Luigi Suigo | Villanova | Italy | 74 | 0.55 / 0.74 | 15.8 | 17.0 / 17.9 |
+| Vuk Lazarevic | Ohio State | Serbia | 2 | 0.30 / 0.23 | 12.9 | 15.4 / 15.3 |
+| Marcus Moller | Michigan | Denmark | 35 | 0.20 / 0.14 | 10.1 | 13.0 / 13.3 |
+| Lazar Stojkovic | St. John's | Serbia | 36 | 0.17 / 0.04 | 9.6 | 11.6 / 10.2 |
+| Mark Morano Mahmutovic | Syracuse | Slovenia | 68 | 0.15 / 0.18 | 11.2 | 9.3 / 8.3 |
+| Gunars Grinvalds | UCLA | Latvia | 47 | 0.09 / 0.03 | 8.7 | 9.5 / 7.1 |
+| Milos Sojic | TCU | Serbia | 37 | 0.05 / 0.34 | 9.2 | 11.9 / 15.1 |
+| Stefan Plisnic | VCU | Serbia | 49 | 0.04 / 0.07 | 8.1 | 11.7 / 9.0 |
+| Martin Tonejc | Rutgers | Slovenia | 23 | 0.03 / 0.05 | 8.2 | 8.0 / 9.4 |
+| Arturas Butajevas | Florida | Lithuania | 50 | 0.02 / 0.07 | 6.9 | 13.3 / 12.5 |
 
 </details>
 
-**Where the former players' careers change the forecast most.** Across the cohort the two models agree about the typical player (mean P(400+ min) 0.275 with the careers against 0.267 without; international group mean PER 11.0 against 10.7). They disagree sharply about individuals, and the disagreements cluster where the backward task has the most to say: players with long club histories heading to mid-majors.
+**Where the former players' careers change the forecast most.** Across the cohort the model trained with the careers is the more cautious (mean P(400+ min) 0.30 against 0.34 without them; international group mean PER 10.9 against 11.2). The two disagree sharply about individuals: 31 players are lowered by more than 0.30 in P(400+ min) and 13 raised. The disagreements cluster where the backward task has the most to say, players with long club histories heading to mid-majors, and most of those are lowered.
 
 *Raised most by the careers:*
 
 | Player | Team | History | Tracked games | P(400+ min) with / without | PER with / without |
 |---|---|---|---|---|---|
-| Talis Soulhac | Murray State | club + national | 153 | 0.73 / 0.02 | 13.3 / 7.1 |
-| Siebe Ledegen | Ohio | club + national | 206 | 0.83 / 0.14 | 13.8 / 8.7 |
-| Aurele Brena-Chemille | San Jose State | club + national | 177 | 0.94 / 0.32 | 15.1 / 11.2 |
-| Cameron Williams | Duke | showcase only | 3 | 0.74 / 0.12 | 21.1 / 15.2 |
-| Saliou Niang | LSU | club + national | 163 | 0.79 / 0.27 | 15.5 / 12.6 |
-| Yoav Vitlem | San Francisco | club + national | 74 | 0.70 / 0.19 | 10.5 / 7.3 |
-| Nemanja Popovic | Memphis | club + national | 175 | 0.82 / 0.32 | 16.3 / 13.6 |
+| Kobe McDowell-White | Chattanooga | club only | 15 | 0.45 / 0.03 | 9.5 / 7.1 |
+| Saliou Niang | LSU | club + national | 163 | 0.67 / 0.26 | 12.2 / 10.8 |
+| Elisee Assui | Florida State | club + national | 88 | 0.45 / 0.03 | 10.7 / 10.0 |
+| Jayden Hodge | Northwestern | national only | 27 | 0.75 / 0.36 | 12.9 / 13.6 |
+| Narcisse N'Goy | Auburn | club + national | 146 | 0.69 / 0.33 | 20.3 / 15.9 |
+| Cameron Williams | Duke | showcase only | 3 | 0.44 / 0.09 | 18.5 / 14.4 |
+| Deron Rippey Jr. | Duke | showcase only | 2 | 0.58 / 0.23 | 13.2 / 10.5 |
 
 *Lowered most by the careers:*
 
 | Player | Team | History | Tracked games | P(400+ min) with / without | PER with / without |
 |---|---|---|---|---|---|
-| Kajus Mikalauskas | Texas-Arlington | club + national | 120 | 0.08 / 0.78 | 7.4 / 9.1 |
-| Armandas Bancevicius | Tennessee-Martin | club + national | 126 | 0.16 / 0.79 | 11.5 / 14.6 |
-| Gabrielius Jokubauskas | Northern Kentucky | club + national | 100 | 0.14 / 0.70 | 10.0 / 13.3 |
-| Jamal George | Oral Roberts | club + national | 68 | 0.26 / 0.81 | 9.5 / 10.7 |
-| Ogbemudia Uagboe | Cleveland State | club + national | 44 | 0.24 / 0.77 | 9.0 / 11.0 |
+| Kajus Mikalauskas | Texas-Arlington | club + national | 120 | 0.06 / 0.89 | 6.5 / 10.5 |
+| Armandas Bancevicius | Tennessee-Martin | club + national | 126 | 0.13 / 0.89 | 10.4 / 15.0 |
+| Gabrielius Jokubauskas | Northern Kentucky | club + national | 100 | 0.11 / 0.86 | 9.3 / 14.0 |
+| Dominykas Daubaris | California | club + national | 72 | 0.13 / 0.81 | 9.4 / 12.6 |
+| Jonas Zilinskas | California Baptist | club + national | 96 | 0.25 / 0.91 | 12.7 / 16.3 |
 
-All 282 freshmen, with and without the careers side by side, are in `FORECASTS_2026_27_deploy_v11_pooled_WITH_WITHOUT.md` in the release (see [Replicate the abstract](#replicate-the-abstract)); the per-model files with intervals are `FORECASTS_2026_27_deploy_v11_pooled.md` and `FORECASTS_2026_27_deploy_control_v11_pooled.md`. The PER shown here is the rate forecast from `FORECAST_RATES_2026_27_deploy_v11_pooled.md`. The cohort list is [`data/forecast_2027_cohort.csv`](data/forecast_2027_cohort.csv).
+All 282 freshmen, with and without the careers side by side, are in `FORECASTS_2026_27_deploy_v19_pooled_WITH_WITHOUT.md` in the release (see [Replicate the abstract](#replicate-the-abstract)); the per-model files with intervals are `FORECASTS_2026_27_deploy_v19_pooled.md` and `FORECASTS_2026_27_deploy_control_v19_pooled.md`. The PER shown here is the rate forecast from `FORECAST_RATES_2026_27_deploy_v19_pooled.md`. The cohort list is [`data/forecast_2027_cohort.csv`](data/forecast_2027_cohort.csv).
 
 ## How the experiment is run
 
@@ -246,7 +246,7 @@ The reference tower has 57,363 parameters and trains in about fourteen minutes a
 | `fpp/data` | Dated data contracts: calendars and cutoffs, immutable game records, nested reconstruction windows, routing of games and summaries, rolling folds, the table assembler over the upstream stores |
 | `fpp/model` | The season distribution and its observed-data likelihood (NumPy/SciPy reference and a differentiable PyTorch twin), feature construction, the game tower, pooling, heads |
 | `fpp/experiments` | Training and scoring of one arm on one fold, fold reports, intercept-only recovery |
-| `tests/` | 238 tests: likelihood identities, cutoff and leakage guards, strict-control masks, weighting, cross-stopping, every architecture option reproducing the registered model by default |
+| `tests/` | 243 tests: likelihood identities, cutoff and leakage guards, strict-control masks, weighting, cross-stopping, every architecture option reproducing the registered model by default |
 | `config/protocol.json` | The calendar, cutoffs, fold layout and numerical tolerances the code enforces. Its arm letters and four-year reconstruction horizon are the original design; the recipe actually compared (the full model against the strict control, every later season, two fits) is fixed in `TEST_REGISTRATION_2026.md` in the release |
 | `replication/` | Frozen scoring scripts, the NCAA team totals and PER constants they read, the abstract source and its figure scripts, the script behind the 2026–27 figure above, and the archive checksums |
 | `data/` | The 2026–27 forecast cohort |
@@ -259,7 +259,7 @@ Not in the repository: the upstream game databases (built from public box scores
 ```sh
 python -m venv .venv && . .venv/bin/activate
 python -m pip install -e ".[model,data,dev]"
-python -m pytest tests -q                      # 238 tests, about two minutes
+python -m pytest tests -q                      # 243 tests, about two minutes
 fpp smoke --out artifacts/smoke.json --draws 200 --score-first 3     # synthetic seasons, no data needed
 fpp gradcheck --out artifacts/gradcheck.json                          # differentiable likelihood vs the reference
 ```
@@ -267,12 +267,12 @@ fpp gradcheck --out artifacts/gradcheck.json                          # differen
 With the upstream stores available (read-only; the assembler never writes to them):
 
 ```sh
-fpp build-tables --stores stores.json --out cache/tables_v11
-fpp train --tables cache/tables_v11 --fold 2023 --arm AR --lambda-plus 1 --seed 20260901 \
+fpp build-tables --stores stores.json --out cache/tables_v19
+fpp train --tables cache/tables_v19 --fold 2023 --arm AR --lambda-plus 1 --seed 20260901 \
           --out cache/runs/ARfull_2023 --recon-horizon-years none --recon-k 1,2,3,all
-fpp train --tables cache/tables_v11 --fold 2023 --arm A --exclude-post-first-season-logs \
+fpp train --tables cache/tables_v19 --fold 2023 --arm A --exclude-post-first-season-logs \
           --seed 20260901 --out cache/runs/control_2023
-fpp report-run --run cache/runs/ARfull_2023 --compare cache/runs/control_2023 --tables cache/tables_v11
+fpp report-run --run cache/runs/ARfull_2023 --compare cache/runs/control_2023 --tables cache/tables_v19
 ```
 
 On tables v11 and later, `fpp train` uses the production feature set by default: the base inputs plus each player's prior league, the destination team's returning players and playing style, and the On3 recruiting-rank fill. Saved runs record the feature set they were trained with and are always read with it.
@@ -281,14 +281,17 @@ Useful flags: `--cross-stop 0|1` and `--weighting season_balanced --first-year-s
 
 ## Replicate the abstract
 
-Everything behind the SSAC27 abstract runs from flat files; no database is needed. The data and the saved models are attached to the GitHub release `ssac27-abstract` as four zip archives (about 475 MB in all), with SHA-256 sums in [`replication/SHA256SUMS`](replication/SHA256SUMS):
+Everything behind the SSAC27 abstract runs from flat files; no database is needed. The data and the saved models are attached to two GitHub releases, with SHA-256 sums in [`replication/SHA256SUMS`](replication/SHA256SUMS): `ssac27-abstract` holds the abstract's archives and the 1 October 2026 forecasts (about 475 MB in all); `production-2026-11` holds the production model behind the 2026–27 forecasts above.
 
 | Archive | Contents |
 |---|---|
 | `tables_v7.zip` | The assembled tables behind every number in the abstract: `games.parquet` (6,317,405 player-game lines, 73 columns), `units.parquet` (124,618 player-seasons, 82 columns), competition periods and the manifest whose hashes the code verifies. |
-| `tables_v11.zip` | The deployment tables behind the 2026–27 forecasts above (6,561,231 lines, 97 columns), with the player, prior-league, destination-context, recruiting-rank and international-RAPM tables the deployment forecasts read. |
-| `runs_registered.zip` | The ten registered run directories, named `bc_ARfull_l1_<fold>_<seed>` (full model) and `bc_Aexcl_l0_<fold>_<seed>` (strict control) for folds 2022, 2023 and 2026 and seeds 20260901 and 20260902 (2022: the first seed only), with checkpoints, per-unit scores and per-player prediction tables; and the four 2026–27 deployment runs, `bc_deployARfull_v11_l1_2027_<seed>` and `bc_deployAexcl_v11_l0_2027_<seed>`. |
-| `results_docs.zip` | The result files behind the abstract and this page, with their per-unit CSVs: `FIRST_RESULT_*`, `TEST_RESULTS_2026`, `TEST_IDENTIFICATION_2026_*`, `TEST_REGISTRATION_2026`, `CRPS_*`, `FORECASTS_2026_27_*` and `FORECAST_RATES_2026_27_*`. |
+| `tables_v11.zip` | The tables behind the 1 October 2026 forecasts (6,561,231 lines, 97 columns), with the player, prior-league, destination-context, recruiting-rank and international-RAPM tables those forecasts read. |
+| `runs_registered.zip` | The ten registered run directories, named `bc_ARfull_l1_<fold>_<seed>` (full model) and `bc_Aexcl_l0_<fold>_<seed>` (strict control) for folds 2022, 2023 and 2026 and seeds 20260901 and 20260902 (2022: the first seed only), with checkpoints, per-unit scores and per-player prediction tables; and the four deployment runs behind the 1 October forecasts, `bc_deployARfull_v11_l1_2027_<seed>` and `bc_deployAexcl_v11_l0_2027_<seed>`. |
+| `results_docs.zip` | The result files behind the abstract, with their per-unit CSVs: `FIRST_RESULT_*`, `TEST_RESULTS_2026`, `TEST_IDENTIFICATION_2026_*`, `TEST_REGISTRATION_2026`, `CRPS_*`, and the 1 October `FORECASTS_2026_27_*` and `FORECAST_RATES_2026_27_*`. |
+| `tables_v19.zip` | The deployment tables behind the 2026–27 forecasts above (6,561,231 lines, 98 columns; 125,063 player-seasons), built on 9 November 2026 from frozen snapshots of all eight upstream stores, with the player, prior-league, destination-context, recruiting-rank, international-RAPM and lower-division tables the deployment reads. |
+| `runs_deploy_v19.zip` | The four deployment runs behind the forecasts above, `bc_deployARfull_v19_l1_2027_<seed>` and `bc_deployAexcl_v19_l0_2027_<seed>`, with checkpoints and manifests. |
+| `forecasts_2026_27_v19.zip` | The frozen forecast files behind this page: `FORECASTS_2026_27_deploy_v19_*`, `FORECASTS_2026_27_deploy_control_v19_*` and `FORECAST_RATES_2026_27_deploy_v19_*`, with provenance and per-player head parameters. |
 
 The tables hold per-game box-score lines and the player fields as they appear on public roster and federation sites (name, date of birth, nationality, height, weight, position); no contact, financial or medical fields. `replication/scripts/` holds the scoring scripts frozen as of the abstract; `replication/data/` holds the NCAA team totals and PER constants those scripts previously read from a database; `replication/abstract/` holds the abstract source and its figure scripts. Tested with Python 3.14.6, torch 2.11.0, pandas 3.0.2, NumPy 2.4.4, SciPy 1.17.1, pyarrow 23.0.1 and matplotlib 3.10.8, on CPU.
 
@@ -298,8 +301,12 @@ mkdir -p cache out
 for f in tables_v7 tables_v11 runs_registered results_docs; do
   curl -fL -o cache/$f.zip https://github.com/aaronjdanielson/future_proves_past/releases/download/ssac27-abstract/$f.zip
 done
+for f in tables_v19 runs_deploy_v19 forecasts_2026_27_v19; do
+  curl -fL -o cache/$f.zip https://github.com/aaronjdanielson/future_proves_past/releases/download/production-2026-11/$f.zip
+done
 (cd cache && shasum -a 256 -c ../replication/SHA256SUMS && unzip -q -o tables_v7.zip && unzip -q -o tables_v11.zip \
-   && unzip -q -o runs_registered.zip && unzip -q -o results_docs.zip -d ../docs)
+   && unzip -q -o runs_registered.zip && unzip -q -o results_docs.zip -d ../docs \
+   && unzip -q -o tables_v19.zip && unzip -q -o runs_deploy_v19.zip && unzip -q -o forecasts_2026_27_v19.zip -d ../docs)
 
 # 1. Paired log scores from the saved checkpoints: exact, a few minutes per pair, no training
 python3 replication/scripts/first_result.py --tables cache/tables_v7 \

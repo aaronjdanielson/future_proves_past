@@ -1,0 +1,4 @@
+# Numerical packages used for the included synthetic validation.
+# Python 3.12.14; package metadata supports Python >=3.11.
+numpy==2.3.5
+scipy==1.17.0
