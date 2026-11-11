@@ -315,7 +315,8 @@ def _rebuild(run_payload: dict, tables_dir: Path, run_dir=None, *, allow_table_m
                            exclude_post_first_season=str(cfg.get("post_first_season_logs", "included")).startswith("excluded"),
                            label_scope=cfg.get("label_scope", "all"),
                            weighting=cfg.get("weighting", "player_balanced"), first_year_share=cfg.get("first_year_share"),
-                           normalizer_exclusion=normalizer_exclusion(run_payload, run_dir))
+                           normalizer_exclusion=normalizer_exclusion(run_payload, run_dir),
+                           backward_reader=rw.get("reader", "latest"))      # D-109: runs record their reconstruction reader
     if fitted is not None:
         if foreign:      # other tables (explicitly allowed): apply the model's own preprocessing to them
             import dataclasses

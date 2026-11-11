@@ -31,7 +31,8 @@ from ..model.teacher import (PARAM_KEYS, SPLIT_SALT, TeacherCache, TeacherTower,
                              player_split)
 from ..model.torch_likelihood import DifferentiableSeasonLikelihood, InterceptOnlySeasonModel
 from ..model.tower import ReferenceTower
-from .train import _batches, _subset, batch_loss, fit_baseline, protocol_test_season, season_batch
+from .distill import makes_logprob_by_shot
+from .train import _batches, _subset, batch_loss, fit_baseline, marginal_batch, protocol_test_season, season_batch
 
 
 def teacher_masks(train_units: pd.DataFrame, windows: pd.DataFrame, *, fold_season: int, split: dict, k: int):
@@ -122,8 +123,17 @@ def prepare_dataset(tables, fold_season: int, *, feature_schema: str, feature_bl
     return tab, store, fs, ds
 
 
+def rows_as_arrays(rows: dict) -> dict:
+    """The in-progress row lists as concatenated arrays (what ``TeacherCache.write`` saves), for in-memory summaries."""
+    out = {"unit_id": np.array(rows["unit_id"], dtype=str), "weight": np.array(rows["weight"], dtype=np.float64)}
+    for key in PARAM_KEYS + ("representation",) + TeacherCache.EXTRA:
+        if rows.get(key):
+            out[key] = np.concatenate(rows[key])
+    return out
+
+
 def train_teacher(*, tables, fold_season: int, n_splits: int, split: int, use_future: bool, out, seed: int, epochs: int = 20,
-                  batch_size: int = 256, lr: float = 1e-3, nodes_train: int = 24, threads: int = 8, baseline_rows: int = 5000,
+                  batch_size: int = 256, lr: float = 1e-3, nodes_train: int = 24, nodes_eval: int = 32, threads: int = 8, baseline_rows: int = 5000,
                   baseline_iter: int = 60, feature_schema: str = "auto", feature_blocks=None, row_guard: bool = True,
                   recon_k=(1, 2, 3, None), recon_max_years=None, backward_reader: str = "latest", width: int = 32, hidden: int = 64,
                   teacher_lambda: float = 1.0) -> dict:
@@ -203,11 +213,20 @@ def train_teacher(*, tables, fold_season: int, n_splits: int, split: int, use_fu
         curve.append({"epoch": epoch + 1, "train_loss": float(np.mean(losses)), "seconds": time.time() - t_epoch})
         print(json.dumps({"teacher": {"fold": fold_season, "split": split, "use_future": use_future, **curve[-1]}}), file=sys.stderr, flush=True)
         status("training", epochs_completed=epoch + 1, epochs_max=epochs, train_loss=curve[-1]["train_loss"])
-    # Targets for the held-out split: one row per (outcome, window), the no-future teacher reading nothing from V.
+    # Targets for the held-out split: one row per (outcome, window), the no-future teacher reading nothing from V. Each row
+    # also carries the teacher's held-out log score of that outcome under the reported convention (overtime summed out,
+    # nodes_eval quadrature), the same for its makes | attempts factor per shot type (exact), the unit's player and cohort
+    # flags, so D⁺ and D⁰ teachers can be compared on the same held-out labels, jointly and on the factor the shooting pilot
+    # distills, with intervals clustered by player.
     status("targets")
     teacher.eval()
+    lik_eval = DifferentiableSeasonLikelihood(None, quadrature_nodes=nodes_eval)
     held_examples = held_ds.training_examples()
     held_pairs = [p for p in pair_examples([e for e in held_examples if e.direction == "-"], [e for e in held_examples if e.direction == "+"]) if p.v is not None]
+    hu = held_ds.train_units.set_index("unit_id")
+    cohort = {"first_year": hu["first_year"].astype(bool).to_dict(), "intl_entrant": hu["intl_entrant"].astype(bool).to_dict(),
+              "has_history": ((hu["n_intl_games"].fillna(0) > 0) | (hu["n_national_games"].fillna(0) > 0)).to_dict()}
+    unit_player = hu["player_id"].astype(int).to_dict()
     rows = TeacherCache.empty_rows()
     position, seen = [], {}
     for p in held_pairs:
@@ -218,8 +237,26 @@ def train_teacher(*, tables, fold_season: int, n_splits: int, split: int, use_fu
         for group in _batches(held_pairs, batch_size, None):
             bx, bv, has_future, w, ids = collate_pairs(group)
             out_params = teacher(bx, bv, has_future)
-            TeacherCache.append(rows, ids, [p.k for p in group], position[start:start + len(group)], w.tolist(), out_params)
+            lp, _ = lik_eval.log_prob(marginal_batch(season_batch(bx)), params=out_params)
+            lp_shots = makes_logprob_by_shot(out_params, bx["counts"])        # [B, 3] log BB(K_h | A_h) per shot type under this window's law
+            flags = {k: [cohort[k].get(u, False) for u in ids] for k in ("first_year", "intl_entrant", "has_history")}
+            TeacherCache.append(rows, ids, [p.k for p in group], position[start:start + len(group)], w.tolist(), out_params,
+                                logscore=lp.numpy(), logscore_makes=lp_shots.sum(1).numpy(), logscore_makes_by_shot=lp_shots.numpy(),
+                                player_ids=[unit_player[u] for u in ids], flags=flags)
             start += len(group)
+    # Held-out teacher score by cohort: the teacher-advantage diagnostic of D-110 (D⁺ − D⁰ on these units). Per unit the
+    # primary statistic is the score of the ω-mixture of its windows' laws (what distillation supervises with); the ω-mean of
+    # the window scores is kept beside it. For the joint season score, for the shooting factor as the sum of the three shot
+    # types' marginal mixtures (what a factorized student can learn), per shot type, and for the joint shooting law.
+    held_cache = TeacherCache(rows_as_arrays(rows), {}) if rows["unit_id"] else None
+    def _by_cohort(scores):
+        def _mean(sel):
+            v = [s for s, fy, ent, hist in scores.values() if sel(fy, ent, hist)]
+            return {"n": len(v), "mean_logscore": float(np.mean(v)) if v else None}
+        return {"all": _mean(lambda fy, ent, hist: True), "first_year_with_history": _mean(lambda fy, ent, hist: fy and hist),
+                "first_year_without_history": _mean(lambda fy, ent, hist: fy and not hist), "intl_entrant": _mean(lambda fy, ent, hist: ent)}
+    held_out_score = {score: {stat: (_by_cohort(held_cache.unit_scores(score, stat)) if held_cache is not None else {}) for stat in ("mixture", "mean")}
+                      for score in ("joint", "makes_transfer", "makes_K2", "makes_K3", "makes_Kf", "makes_given_attempts")}
     sha = checkpoint_sha256(teacher.state_dict())
     torch.save(teacher.state_dict(), out / "teacher_state.pt")
     # The actual player→split mapping and the frozen preprocessing travel with the checkpoint (D-110): a salt alone does not
@@ -243,6 +280,14 @@ def train_teacher(*, tables, fold_season: int, n_splits: int, split: int, use_fu
             "counts": {"teacher_training_units": int(train_mask.sum()), "teacher_training_pairs": len(pairs), "teacher_training_windows": int(train_win.sum()),
                        "held_out_units": int(held_mask.sum()), "held_out_players": len(held_players), "held_out_windows": int(held_win.sum()),
                        "target_rows": len(rows["unit_id"]), "target_units": len(seen)},
+            "held_out_score": {**held_out_score,
+                               "convention": f"per (outcome, window): 'joint' = marginal log probability of the season, overtime summed out, "
+                                             f"{nodes_eval}-node quadrature; 'makes_K2/K3/Kf' = log BB(K_h | A_h) per shot type, exact; "
+                                             "'makes_given_attempts' their sum. Per unit: 'mixture' = log Σ_w ω̃_w exp(ℓ_w) (the ω-mixture of "
+                                             "window laws, which distillation supervises with), 'mean' = Σ_w ω̃_w ℓ_w, ω̃ the unit's window weights "
+                                             "normalized to one; 'makes_transfer' = the sum over shot types of the marginal mixture scores (what a "
+                                             "factorized student can learn), 'makes_given_attempts' mixture = the joint shooting law mixed over "
+                                             "windows; paired units only"},
             "baseline": {"fit": baseline, "parameters": {k: v.detach().tolist() for k, v in base_model.constrained().items()}},
             "curve": curve, "seconds": {"data": t_data, "total": time.time() - t0}}
     TeacherCache.write(out / "targets", rows, meta)

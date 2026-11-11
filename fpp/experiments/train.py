@@ -350,11 +350,13 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0,
             row_guard: bool = True, test_season: int | None = None, history_dropout: float = 0.0,
             static_branch: bool = False, history_dropout_scope: str = "any", batch_normalizer: str = "weight",
-            teacher_caches=None, distill_alpha: float = 0.0, distill_beta: float = 0.0) -> dict:
+            teacher_caches=None, distill_alpha: float = 0.0, distill_beta: float = 0.0, backward_reader: str = "latest") -> dict:
     if history_dropout_scope not in HISTORY_DROPOUT_SCOPES:
         raise ValueError(f"history_dropout_scope must be one of {HISTORY_DROPOUT_SCOPES}")
     if batch_normalizer not in BATCH_NORMALIZERS:
         raise ValueError(f"batch_normalizer must be one of {BATCH_NORMALIZERS}")
+    if backward_reader not in F.READERS:
+        raise ValueError(f"backward_reader must be one of {F.READERS}")
     if not (0.0 <= distill_alpha < 1.0) or distill_beta < 0:
         raise ValueError("distill_alpha must lie in [0, 1) and distill_beta be non-negative (D-109/D-110)")
     if (distill_alpha > 0 or distill_beta > 0) and not teacher_caches:
@@ -412,7 +414,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     ds = FoldDataset.build(tab, fold, store, test_cohort_players=test_players, index=player_index(tab["games"]), seed=seed,
                            exclude_assumed_zeros=exclude_assumed_zeros, k_values=tuple(recon_k), max_years=recon_max_years,
                            exclude_post_first_season=exclude_post_first_season_logs, label_scope=label_scope,
-                           weighting=weighting, first_year_share=first_year_share)
+                           weighting=weighting, first_year_share=first_year_share, backward_reader=backward_reader)
     if max_train_units is not None:
         keep = ds.train_units.sample(n=min(max_train_units, len(ds.train_units)), random_state=seed)
         ds = dataclasses.replace(ds, train_units=keep.reset_index(drop=True),
@@ -792,6 +794,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "row_guard": bool(row_guard),     # D-095: unresolved competition periods excluded from every store consumer
                    "protocol_test_season": protocol_test,
                    "reconstruction_windows": {"max_years": recon_max_years, "k_values": [k for k in recon_k],
+                                              "reader": backward_reader,       # D-109: "latest" (registered) or "near"
                                               "horizon": "training cutoff" if recon_max_years is None else f"{recon_max_years} years after the season end",
                                               "windows": int(len(ds.windows)), "units": int(ds.windows["unit_id"].nunique()) if len(ds.windows) else 0},
                    "pretraining": pretrained_info, "shuffle": shuffle_info, "updates": updates,

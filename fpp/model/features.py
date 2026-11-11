@@ -32,8 +32,14 @@ from ..data.records import BOX_FIELDS
 DAY = np.timedelta64(1, "D")
 YEAR_DAYS = 365.2425
 EPS = 1e-6
-MAX_GAMES = 256           # most recent games kept per channel; truncation is recorded in the evidence
+MAX_GAMES = 256           # games kept per channel (the latest under the "latest" reader, the nearest to the target under "near"); truncation is recorded in the evidence
 HALF_LIFE_YEARS = 0.5     # reference recency half-life (App. C.1); a learned value is challenger (g)
+# Channel readers (D-109). "latest" is the registered reader: recency runs back from the channel's latest game, and the cap
+# keeps the latest games — right for a forward history, whose latest game is the nearest to the target. "near" is the
+# backward reader for reconstruction windows: recency runs forward from the earliest retained post-target game (so the
+# games nearest the NCAA season weigh most in the recency mean) and the cap keeps the earliest games. The signed clock tau
+# and the gap-to-target evidence keep the true target-to-source distances under both readers.
+READERS = ("latest", "near")
 TIME_BASIS_CENTERS = (0.25, 1.0, 2.0, 4.0)   # years, on log1p scale in the basis
 TIME_BASIS_WIDTH = 0.6
 
@@ -445,11 +451,12 @@ class Channel:
     cats: np.ndarray       # [T, C] category codes
     clocks: np.ndarray     # [T, 6]
     weight: np.ndarray     # [T] pooling weight n_g + 1
-    recency: np.ndarray    # [T] years to the channel's latest game
+    recency: np.ndarray    # [T] years from the reader's anchor: back from the latest game ("latest"), forward from the earliest ("near")
     season: np.ndarray     # [T] season labels (for contrasts)
     order: np.ndarray      # [T] chronological rank within the channel
     evidence: np.ndarray   # [10]
     present: bool
+    anchor_days: float = np.nan   # the reader's anchor date (days) among the retained rows; source age and gap are measured there
 
     @classmethod
     def empty(cls, n_fields: int) -> "Channel":
@@ -461,20 +468,23 @@ class Channel:
 
 
 def build_channel(store: GameStore, rows: np.ndarray, *, cutoff_days: float, target_days: float,
-                  normalizer: Normalizer) -> Channel:
-    """Encode one game channel; rows are already chronological (store order)."""
+                  normalizer: Normalizer, reader: str = "latest") -> Channel:
+    """Encode one game channel; rows are already chronological (store order). ``reader`` (D-109) selects which games the cap
+    keeps and where recency is anchored: "latest" (registered) or "near" (backward windows; see READERS)."""
+    if reader not in READERS:
+        raise ValueError(f"reader must be one of {READERS}")
     names = store.schema.field_names
     if len(rows) == 0:
         return Channel.empty(len(names))
     truncated = len(rows) > MAX_GAMES
     if truncated:
-        rows = rows[-MAX_GAMES:]
+        rows = rows[-MAX_GAMES:] if reader == "latest" else rows[:MAX_GAMES]
     raw = store.continuous(rows, cutoff_days)
     x, mask = normalizer.games(raw)
     dates = store.date[rows]
-    anchor = dates.max()
+    anchor = dates.max() if reader == "latest" else dates.min()
     tau = (dates - target_days) / YEAR_DAYS
-    recency = (anchor - dates) / YEAR_DAYS
+    recency = (anchor - dates) / YEAR_DAYS if reader == "latest" else (dates - anchor) / YEAR_DAYS
     gaps = np.r_[np.nan, np.diff(dates)] / YEAR_DAYS
     seasons = store.season[rows]
     boundary = np.r_[True, seasons[1:] != seasons[:-1]]
@@ -489,7 +499,8 @@ def build_channel(store: GameStore, rows: np.ndarray, *, cutoff_days: float, tar
         float(mask[:, col["starter"]].mean()), float(mask[:, col["opp_adj_o"]].mean()),
         float(mask[:, col["age_at_game"]].mean()), float(truncated)], dtype=np.float32)
     return Channel(x, mask, store.cats[rows], clocks.astype(np.float32), (minutes + 1.0).astype(np.float32),
-                   recency.astype(np.float32), seasons.astype(np.int32), np.arange(len(rows), dtype=np.int32), evidence, True)
+                   recency.astype(np.float32), seasons.astype(np.int32), np.arange(len(rows), dtype=np.int32), evidence, True,
+                   float(anchor))
 
 
 @dataclass
@@ -510,18 +521,20 @@ class Example:
 
 def build_example(unit, *, store: GameStore, normalizer: Normalizer, static, static_mask, static_cats,
                   intl_rows: np.ndarray, ncaa_rows: np.ndarray, cutoff_days: float, direction: str,
-                  k=(), weight: float = 1.0, ncaa_cutoff_days: float | None = None) -> Example:
+                  k=(), weight: float = 1.0, ncaa_cutoff_days: float | None = None, reader: str = "latest") -> Example:
     """``cutoff_days`` dates the source channel's context; ``ncaa_cutoff_days`` (default: the same) dates the prior-NCAA
     channel's. A reconstruction example passes the target's forecast cutoff there, so its prior-NCAA context stays
-    frozen at the target forecast date, identical to the forward example of the same unit (D-095)."""
+    frozen at the target forecast date, identical to the forward example of the same unit (D-095). ``reader`` applies to
+    the source channel only (D-109); the source anchor for the time basis is the channel's own anchor, so a truncated
+    channel never dates its age and gap at a game the encoder does not see."""
     target_days = float(_days(pd.Series([unit.period_start]))[0])
-    intl = build_channel(store, intl_rows, cutoff_days=cutoff_days, target_days=target_days, normalizer=normalizer)
+    intl = build_channel(store, intl_rows, cutoff_days=cutoff_days, target_days=target_days, normalizer=normalizer, reader=reader)
     ncaa = build_channel(store, ncaa_rows, cutoff_days=cutoff_days if ncaa_cutoff_days is None else ncaa_cutoff_days,
                          target_days=target_days, normalizer=normalizer)
     dob = unit.dob if isinstance(unit.dob, pd.Timestamp) and not pd.isna(unit.dob) else None
     target_age = float(unit.age_at_cutoff) if not pd.isna(unit.age_at_cutoff) else np.nan
     if intl.present:
-        anchor = float(store.date[intl_rows[-1]])
+        anchor = float(intl.anchor_days)
         delta = (anchor - target_days) / YEAR_DAYS
         source_age = (anchor - float(_days(pd.Series([dob]))[0])) / YEAR_DAYS if dob is not None else np.nan
     else:

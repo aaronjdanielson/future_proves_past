@@ -26,10 +26,12 @@ import torch.nn as nn
 
 from . import features as F
 from .distributions import SeasonParameters
+from .production import MAKE_ATTEMPTS
 from .tower import OutcomeHeads, ReferenceTower, _mlp
 
 PARAM_KEYS = ("pi_g", "alpha_g", "beta_g", "alpha_j", "beta_j", "nu", "alpha_m", "beta_m", "pi_m", "rates", "dispersions", "makes_alpha", "makes_beta")
 SPLIT_SALT = 20261110      # fixed, seed-independent: the same player always lands in the same split for a given K
+SHOT_KEYS = tuple(MAKE_ATTEMPTS)   # ("K2", "K3", "Kf"): the column order of makes_alpha / makes_beta
 
 
 class TeacherTower(nn.Module):
@@ -118,12 +120,23 @@ class TeacherCache:
     def __init__(self, rows: dict, metadata: dict):
         self.rows, self.metadata = rows, metadata
 
-    @staticmethod
-    def empty_rows() -> dict:
-        return {"unit_id": [], "k": [], "window_index": [], "weight": [], "representation": [], **{k: [] for k in PARAM_KEYS}}
+    EXTRA = (("teacher_logscore", "teacher_logscore_makes") + tuple(f"teacher_logscore_makes_{h}" for h in SHOT_KEYS)
+             + ("player_id", "first_year", "intl_entrant", "has_history"))
+    # optional per-row columns: the teacher's held-out log score of the outcome under the reported convention; of its
+    # makes | attempts factor (the three shot types under one window's law) and of each shot type alone; the unit's player
+    # (for player-clustered intervals) and cohort flags
+    SCORES = {"joint": ("teacher_logscore",), "makes_given_attempts": ("teacher_logscore_makes",),
+              **{f"makes_{h}": (f"teacher_logscore_makes_{h}",) for h in SHOT_KEYS},
+              "makes_transfer": tuple(f"teacher_logscore_makes_{h}" for h in SHOT_KEYS)}
 
     @staticmethod
-    def append(rows: dict, unit_ids: list, ks: list, window_index: list, weights, out: dict) -> None:
+    def empty_rows() -> dict:
+        return {"unit_id": [], "k": [], "window_index": [], "weight": [], "representation": [], **{k: [] for k in PARAM_KEYS},
+                **{k: [] for k in TeacherCache.EXTRA}}
+
+    @staticmethod
+    def append(rows: dict, unit_ids: list, ks: list, window_index: list, weights, out: dict, logscore=None, logscore_makes=None,
+               logscore_makes_by_shot=None, player_ids=None, flags: dict | None = None) -> None:
         rows["unit_id"].extend(unit_ids)
         rows["k"].extend("all" if k == () else ",".join("all" if x is None else str(x) for x in k) for k in ks)
         rows["window_index"].extend(int(i) for i in window_index)
@@ -131,6 +144,19 @@ class TeacherCache:
         rows["representation"].append(out["representation"].detach().to(torch.float64).numpy())
         for key in PARAM_KEYS:
             rows[key].append(out[key].detach().to(torch.float64).numpy())
+        if logscore is not None:
+            rows["teacher_logscore"].append(np.asarray(logscore, dtype=np.float64))
+        if logscore_makes is not None:
+            rows["teacher_logscore_makes"].append(np.asarray(logscore_makes, dtype=np.float64))
+        if logscore_makes_by_shot is not None:
+            a = np.asarray(logscore_makes_by_shot, dtype=np.float64).reshape(len(unit_ids), len(SHOT_KEYS))
+            for j, h in enumerate(SHOT_KEYS):
+                rows[f"teacher_logscore_makes_{h}"].append(a[:, j])
+        if player_ids is not None:
+            rows["player_id"].append(np.asarray(player_ids, dtype=np.int64))
+        if flags is not None:
+            for key in ("first_year", "intl_entrant", "has_history"):
+                rows[key].append(np.asarray(flags[key], dtype=np.uint8))
 
     @classmethod
     def write(cls, path: Path, rows: dict, metadata: dict) -> Path:
@@ -142,6 +168,9 @@ class TeacherCache:
             arrays["representation"] = np.concatenate(rows["representation"])
             for key in PARAM_KEYS:
                 arrays[key] = np.concatenate(rows[key])
+            for key in cls.EXTRA:
+                if rows.get(key):
+                    arrays[key] = np.concatenate(rows[key])
         np.savez_compressed(path.with_suffix(".npz"), **arrays)
         meta = {**metadata, "rows": len(rows["unit_id"]), "width": int(arrays["representation"].shape[1]) if rows["unit_id"] else None,
                 "parameter_keys": list(PARAM_KEYS)}
@@ -170,10 +199,50 @@ class TeacherCache:
         rep = self.rows["representation"]
         if rep.ndim != 2 or rep.shape != (n, int(self.metadata["width"])):
             raise ValueError(f"representation shape {rep.shape} does not match {n} rows × width {self.metadata.get('width')}")
-        for key in PARAM_KEYS + ("representation", "weight"):
+        for key in PARAM_KEYS + ("representation", "weight") + tuple(k for k in self.EXTRA if k in self.rows):
             a = np.asarray(self.rows[key], dtype=np.float64)
             if a.shape[0] != n or not np.isfinite(a).all():
                 raise ValueError(f"teacher cache column {key!r}: wrong length or non-finite values")
+
+    def unit_scores(self, score: str = "joint", statistic: str = "mixture") -> dict:
+        """unit_id → (held-out teacher score over the unit's windows, first_year, intl_entrant, has_history).
+
+        With per-window log probabilities ℓ_w of the observed outcome and the unit's window weights ω̃_w normalized to one,
+        ``statistic="mixture"`` (default) is S = log Σ_w ω̃_w exp(ℓ_w): the log score of the ω-mixture of the windows'
+        predictive laws, which is the law distillation supervises with. ``"mean"`` is Σ_w ω̃_w ℓ_w, the expected score of a
+        window drawn at random. The two agree for a single window and the mixture is never lower (Jensen); they can rank two
+        teachers differently. ``score``: "joint" (the reported convention); "makes_given_attempts" (the three shot types under
+        one window's law, mixed over windows — a joint shooting law that can carry dependence between shot types a factorized
+        student cannot represent); "makes_K2" / "makes_K3" / "makes_Kf" (one shot type's marginal, mixed over windows);
+        "makes_transfer" (the sum of the three marginal mixture scores — the part of the teacher's shooting law a factorized
+        student can learn, so the score that bears on the shooting pilot). Needs the optional columns."""
+        columns = self.SCORES.get(score)
+        if columns is None:
+            raise ValueError(f"unknown score {score!r}; one of {sorted(self.SCORES)}")
+        if any(c not in self.rows for c in columns):
+            raise ValueError(f"this teacher cache holds no held-out {score} log scores")
+        if statistic not in ("mixture", "mean"):
+            raise ValueError(f"statistic must be 'mixture' or 'mean', not {statistic!r}")
+        out = {}
+        for u, idx in self.by_unit().items():
+            w = np.asarray(self.rows["weight"][idx], dtype=float)
+            w = w / w.sum() if w.sum() > 0 else np.full(len(idx), 1.0 / len(idx))
+            s = 0.0
+            for column in columns:
+                lp = np.asarray(self.rows[column][idx], dtype=float)
+                if statistic == "mixture":
+                    m = lp.max()
+                    s += m + np.log((w * np.exp(lp - m)).sum())
+                else:
+                    s += (w * lp).sum()
+            out[u] = (float(s), bool(self.rows["first_year"][idx[0]]), bool(self.rows["intl_entrant"][idx[0]]), bool(self.rows["has_history"][idx[0]]))
+        return out
+
+    def unit_players(self) -> dict:
+        """unit_id → player id, for player-clustered intervals (needs the optional ``player_id`` column)."""
+        if "player_id" not in self.rows:
+            raise ValueError("this teacher cache holds no player ids")
+        return {str(u): int(p) for u, p in zip(self.rows["unit_id"], self.rows["player_id"])}
 
     def validate(self, expected: dict) -> None:
         """Refuse a cache whose identity differs from what the student expects: every key given in ``expected`` (fold,

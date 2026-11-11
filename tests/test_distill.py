@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from fpp.experiments.distill import (Alignments, TeacherTargets, assignment_digest, distilled_rows, load_teacher_caches,
-                                     representation_loss, shooting_cross_entropy, student_makes_logprob)
+                                     makes_logprob_by_shot, representation_loss, shooting_cross_entropy, student_makes_logprob)
 from fpp.experiments.train import season_batch
 from fpp.model import features as F
 from fpp.model.distributions import SeasonParameters
@@ -72,6 +72,10 @@ class DistillTests(unittest.TestCase):
         zero = batch["counts"].clone()
         zero[:] = 0
         self.assertTrue(bool((student_makes_logprob(params, zero) == 0).all()))
+        # per shot type (2P, 3P, FT): the three marginal terms whose sum is the makes factor
+        by_shot = makes_logprob_by_shot(params, batch["counts"])
+        self.assertEqual(tuple(by_shot.shape), (batch["counts"].shape[0], 3))
+        np.testing.assert_allclose(by_shot.sum(1).numpy(), lp_makes.numpy(), rtol=0, atol=1e-12)
 
     def test_shooting_cross_entropy_is_minimized_at_the_teacher_law_and_blends_correctly(self):
         tower, batch, examples = _student_and_batch()

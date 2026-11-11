@@ -53,6 +53,7 @@ class FoldDataset:
     weighting: str = "player_balanced"           # D-062: "player_balanced" (registered) or "season_balanced"
     first_year_share: float | None = None        # D-062: mass share of first-season units per direction; None = natural
     future: pd.Series | None = None              # D-070: standardized later-career production per training unit_id
+    backward_reader: str = "latest"              # D-109: channel reader for reconstruction windows ("latest" registered, "near")
 
     ASSUMED_ZERO = "NO_SEASON_LINE_AND_TEAM_MINUTE_SUM_CONSISTENT"
     WEIGHTINGS = ("player_balanced", "season_balanced")
@@ -63,11 +64,15 @@ class FoldDataset:
               exclude_assumed_zeros: bool = False, k_values=(1, 2, 3), max_years: float | None = 4,
               exclude_post_first_season: bool = False, label_scope: str = "all",
               weighting: str = "player_balanced", first_year_share: float | None = None,
-              normalizer_exclusion: bool = True) -> "FoldDataset":
+              normalizer_exclusion: bool = True, backward_reader: str = "latest") -> "FoldDataset":
         """``normalizer_exclusion`` (D-072/D-078): whether the strict control's normalization statistics exclude the
         same rows as its inputs. True for every run trained after 2026-09-30 21:28; a rebuild of an earlier strict
-        control must pass False to reproduce the statistics it was trained with (``report.normalizer_exclusion``)."""
+        control must pass False to reproduce the statistics it was trained with (``report.normalizer_exclusion``).
+        ``backward_reader`` (D-109) is the channel reader of reconstruction windows; forward and prior-NCAA channels
+        always use the registered "latest" reader."""
         validate_weighting(weighting, first_year_share)
+        if backward_reader not in F.READERS:
+            raise ValueError(f"backward_reader must be one of {F.READERS}")
         m = fold_membership(tables, fold, test_cohort_players=test_cohort_players, index=index,
                             k_values=k_values, max_years=max_years, label_scope=label_scope)
         train, evaluate, windows = m["train_units"], m["evaluation_units"], m["windows"]
@@ -95,7 +100,8 @@ class FoldDataset:
         vocab = F.static_vocab(train, store.schema)                                  # the store's feature schema (D-065)
         normalizer = F.Normalizer.fit(store, rows, cutoff, F.static_continuous(train, store.schema))
         return cls(fold, store, normalizer, vocab, train.reset_index(drop=True), evaluate.reset_index(drop=True),
-                   windows, m["heldout_players"], excluded, weighting, None if first_year_share is None else float(first_year_share))
+                   windows, m["heldout_players"], excluded, weighting, None if first_year_share is None else float(first_year_share),
+                   backward_reader=backward_reader)
 
     # ------------------------------------------------------------------ rows per unit
     def _channels(self, unit, cutoff_days: float):
@@ -147,7 +153,8 @@ class FoldDataset:
                 # target's forecast cutoff (D-095), so it matches the unit's forward example exactly.
                 recon.append(F.build_example(unit, store=self.store, normalizer=self.normalizer, static=z[i], static_mask=mask[i],
                                              static_cats=cats[i], intl_rows=intl, ncaa_rows=ncaa, cutoff_days=cutoff,
-                                             direction="+", k=window.k, weight=float(w_recon[j]), ncaa_cutoff_days=unit_cutoff))
+                                             direction="+", k=window.k, weight=float(w_recon[j]), ncaa_cutoff_days=unit_cutoff,
+                                             reader=self.backward_reader))
         if self.future is not None and len(self.future):
             for e in forward + recon:
                 v = self.future.get(e.unit_id, np.nan)

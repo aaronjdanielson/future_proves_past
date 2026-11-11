@@ -1,5 +1,6 @@
 """D-110 teacher: the no-future twin cannot respond to V; the missing view is the same pathway; pairing, splits and the
 cache keep windows separate and reproduce the teacher on reload."""
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,6 +104,44 @@ class TeacherTests(unittest.TestCase):
         for key in PARAM_KEYS:
             np.testing.assert_allclose(cache.rows[key], out[key].numpy(), rtol=0, atol=1e-12)
         self.assertEqual(len(cache.metadata["checkpoint_sha256"]), 64)
+        with self.assertRaises(ValueError):
+            cache.unit_scores()                                              # no held-out scores in this cache
+        # With held-out log scores and cohort flags: per-unit scores and flags come back. The default statistic is the score
+        # of the ω-mixture of a unit's window laws (what distillation supervises with), not the ω-mean of the window scores.
+        rows2 = TeacherCache.empty_rows()
+        TeacherCache.append(rows2, ids, [p.k for p in pairs], range(len(pairs)), [1.0, 3.0, 2.0], out,
+                            logscore=[-40.0, -44.0, -30.0], logscore_makes=[-5.0, -6.0, -4.0],
+                            logscore_makes_by_shot=[[-2.0, -2.0, -1.0], [-3.0, -1.0, -2.0], [-1.0, -2.0, -1.0]], player_ids=[11, 11, 22],
+                            flags={"first_year": [1, 1, 0], "intl_entrant": [1, 1, 0], "has_history": [1, 1, 1]})
+        with tempfile.TemporaryDirectory() as d:
+            cache2 = TeacherCache.read(TeacherCache.write(Path(d) / "teacher_s0b", rows2, meta))
+        s, s_mean = cache2.unit_scores(), cache2.unit_scores(statistic="mean")
+        self.assertAlmostEqual(s["a"][0], math.log(0.25 * math.exp(-40.0) + 0.75 * math.exp(-44.0)))   # mixture over a's two windows
+        self.assertAlmostEqual(s_mean["a"][0], (1.0 * -40.0 + 3.0 * -44.0) / 4.0)                      # ω-mean of the window scores
+        self.assertGreater(s["a"][0], s_mean["a"][0])                                                  # Jensen: the mixture is never lower
+        self.assertEqual(s["b"], (-30.0, False, False, True))                                          # one window: both agree
+        self.assertEqual(s_mean["b"], s["b"])
+        makes = cache2.unit_scores("makes_given_attempts")                      # the joint shooting law mixed over windows
+        self.assertAlmostEqual(makes["a"][0], math.log(0.25 * math.exp(-5.0) + 0.75 * math.exp(-6.0)))
+        self.assertEqual(makes["b"][0], -4.0)
+        # Per shot type: each marginal mixed over windows, and their sum — the transfer score, what a factorized student can
+        # learn — which differs from the joint shooting mixture when the windows disagree on more than one shot type.
+        mix = lambda x, y: math.log(0.25 * math.exp(x) + 0.75 * math.exp(y))   # noqa: E731
+        self.assertAlmostEqual(cache2.unit_scores("makes_K2")["a"][0], mix(-2.0, -3.0))
+        self.assertAlmostEqual(cache2.unit_scores("makes_K3")["a"][0], mix(-2.0, -1.0))
+        self.assertAlmostEqual(cache2.unit_scores("makes_Kf")["a"][0], mix(-1.0, -2.0))
+        transfer = cache2.unit_scores("makes_transfer")
+        self.assertAlmostEqual(transfer["a"][0], mix(-2.0, -3.0) + mix(-2.0, -1.0) + mix(-1.0, -2.0))
+        self.assertNotAlmostEqual(transfer["a"][0], makes["a"][0])
+        self.assertAlmostEqual(cache2.unit_scores("makes_transfer", "mean")["a"][0], 0.25 * -5.0 + 0.75 * -6.0)   # ω-means add up
+        self.assertEqual(transfer["b"][0], -4.0)                                  # one window: every shooting score agrees
+        self.assertEqual(cache2.unit_players(), {"a": 11, "b": 22})
+        with self.assertRaises(ValueError):
+            cache.unit_players()
+        with self.assertRaises(ValueError):
+            cache2.unit_scores("opportunity")
+        with self.assertRaises(ValueError):
+            cache2.unit_scores(statistic="median")
 
 
 if __name__ == "__main__":

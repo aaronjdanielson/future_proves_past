@@ -156,13 +156,19 @@ def _bb_grid(n: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor) -> torch.
     return beta_binomial_logpmf(ks, n.to(DTYPE)[:, None].expand(-1, K), alpha[:, None], beta[:, None])
 
 
-def student_makes_logprob(params: dict, counts: torch.Tensor) -> torch.Tensor:
-    """Σ_h log BB(K_h | A_h; α_S,h, β_S,h) per row: the makes factor of the season likelihood, exact."""
-    total = torch.zeros(counts.shape[0], dtype=DTYPE)
+def makes_logprob_by_shot(params: dict, counts: torch.Tensor) -> torch.Tensor:
+    """[B, 3] log BB(K_h | A_h; α_h, β_h) per row and shot type (2P, 3P, FT in ``MAKE_ATTEMPTS`` order): the makes factor of
+    the season likelihood, exact, before the sum over shot types."""
+    cols = []
     for h, (make, attempt) in enumerate(SHOTS):
         k, a = counts[:, CI[make]].to(DTYPE), counts[:, CI[attempt]].to(DTYPE)
-        total = total + beta_binomial_logpmf(k, a, params["makes_alpha"][:, h].to(DTYPE), params["makes_beta"][:, h].to(DTYPE))
-    return total
+        cols.append(beta_binomial_logpmf(k, a, params["makes_alpha"][:, h].to(DTYPE), params["makes_beta"][:, h].to(DTYPE)))
+    return torch.stack(cols, dim=1)
+
+
+def student_makes_logprob(params: dict, counts: torch.Tensor) -> torch.Tensor:
+    """Σ_h log BB(K_h | A_h; α_S,h, β_S,h) per row: the makes factor of the season likelihood, exact."""
+    return makes_logprob_by_shot(params, counts).sum(1)
 
 
 def shooting_cross_entropy(params: dict, counts: torch.Tensor, targets: TeacherTargets, rows: np.ndarray, pos: np.ndarray, omega: np.ndarray) -> torch.Tensor:

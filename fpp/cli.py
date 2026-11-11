@@ -119,6 +119,9 @@ def main(argv=None) -> int:
     train.add_argument("--batch-normalizer", choices=["weight", "size"], default="weight",
                        help="D-104: divide each minibatch's weighted loss by its weight sum (registered) or by the batch size "
                             "(fixed normalizer; opt-in until a matched pair adopts it)")
+    train.add_argument("--backward-reader", choices=["latest", "near"], default="latest",
+                       help="D-109: how reconstruction windows are read: 'latest' (registered: recency back from the latest game, cap keeps "
+                            "the latest) or 'near' (recency forward from the earliest post-target game, cap keeps the nearest to the season)")
     train.add_argument("--no-row-guard", dest="row_guard", action="store_false",
                        help="D-095: keep the pre-D-095 rows (unresolved competition periods still reach forward histories, "
                             "normalization and the pool); only for exact pairing with runs trained before D-095")
@@ -230,7 +233,8 @@ def main(argv=None) -> int:
                               game_dropout=args.game_dropout, average_last=args.average_last,
                               head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay,
                               row_guard=args.row_guard, history_dropout=args.history_dropout, static_branch=args.static_branch,
-                              history_dropout_scope=args.history_dropout_scope, batch_normalizer=args.batch_normalizer)
+                              history_dropout_scope=args.history_dropout_scope, batch_normalizer=args.batch_normalizer,
+                              backward_reader=args.backward_reader)
             result = {"saved": str(args.out), "arm": args.arm, "model": args.model, "fold": args.fold, "seed": args.seed,
                       "counts": payload["counts"], "training": {"epochs_run": payload["training"]["epochs_run"],
                                                                  "best_stop_nll": payload["training"]["best_stop_nll"],
