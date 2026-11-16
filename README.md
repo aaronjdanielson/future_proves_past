@@ -8,27 +8,22 @@ Forecasting the first NCAA season of international recruits from their pre-colle
 trained with the help of 10,000+ former NCAA players who later played abroad.</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/tests-197%20passing-brightgreen" alt="197 tests">
+  <img src="https://img.shields.io/badge/tests-299%20passing-brightgreen" alt="299 tests">
   <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/player--games-6.3M-8A2BE2" alt="6.3M player-games">
+  <img src="https://img.shields.io/badge/player--games-6.6M-8A2BE2" alt="6.6M player-games">
   <a href="#replicate-the-abstract"><img src="https://img.shields.io/badge/replication-data%20%2B%20models-0F8A6B" alt="replication: data + models"></a>
   <img src="https://img.shields.io/badge/2026--27%20forecasts-282%20freshmen-orange" alt="282 freshmen forecast">
 </p>
 
-<div align="center">
-<table>
-  <tr>
-    <td align="center" width="200"><h2>5.7×</h2>2021–22<br><sub>held-out season</sub></td>
-    <td align="center" width="200"><h2>2.3×</h2>2022–23<br><sub>held-out season</sub></td>
-    <td align="center" width="200"><h2>1.5×</h2>2025–26<br><sub>registered one-shot test</sub></td>
-  </tr>
-</table>
-<sub>How many times more probable the seasons that actually happened were, under the model that learned from former players' later careers.</sub>
-</div>
+<p align="center">
+  <img src="assets/fig_scoreboard_dark.png" alt="How many times more probable the seasons that happened were with later-career training: 3.3× in 2021–22 (n 105, four fits), 2.6× in 2022–23 (n 124, four fits), 2.2× in 2023–24 (n 153, a season further ahead), and 1.5× on the registered one-shot test of 2025–26 (n 307, scored September 2026)." width="880">
+</p>
+<p align="center"><sub>Freshmen with tracked pre-college games. Each number compares the model trained with former players' later careers against the same model trained without them: the geometric mean, over players, of how many times more probable the season that happened was. Every season is out of sample; 2025–26 was registered before it was scored. <a href="#does-learning-backward-help">Details</a>.</sub></p>
 
 <p align="center">
   <a href="#the-idea-in-thirty-seconds"><b>The idea</b></a> &nbsp;·&nbsp;
   <a href="#does-learning-backward-help"><b>The evidence</b></a> &nbsp;·&nbsp;
+  <a href="#what-we-tried-next"><b>What we tried next</b></a> &nbsp;·&nbsp;
   <a href="#forecasts-for-202627"><b>2026–27 forecasts</b></a> &nbsp;·&nbsp;
   <a href="#replicate-the-abstract"><b>Replicate</b></a>
 </p>
@@ -43,7 +38,7 @@ College programs commit roster spots and money to international prospects before
 
 But the *reverse* transition is huge. More than ten thousand former NCAA players went on to play in international leagues and for national teams, and every one of them is measured on both sides of the same gap: we know their college seasons, and we know what they did abroad.
 
-So we train one network on two jobs. **Forward:** pre-college games → the coming NCAA season. **Backward:** post-college games → the college season we already know. The second job is only there to teach the first.
+Our hypothesis is that competitions share a translation structure: each league is a different measurement of the same players, so a career observed in either direction can teach how production travels. So we train one network on two jobs. **Forward:** pre-college games → the coming NCAA season. **Backward:** post-college games → the college season we already know. The second job is only there to teach the first.
 
 ```mermaid
 flowchart LR
@@ -78,7 +73,7 @@ The picture at the top shows what the answer to the first question buys. Red is 
 
 Not a number. A **whole season as a probability distribution**: whether the player appears at all, games and starts, minutes, and thirteen box-score counts (field goals by zone, free throws, rebounds, assists, steals, blocks, turnovers, fouls), everything coupled through an explicit opportunity-before-production structure. From draws of that distribution we read off anything a scout asks for: P(400+ minutes), minutes per game *if he plays*, PER, usage, true shooting, per-40 rates.
 
-Inputs are every tracked game before the season's cutoff (1 October): 6.3 million player-games from 160 international leagues (151 club competitions with games in the tables), 78 national-team competitions and the main US showcases, each game encoded with its box score, opponent strength, competition, age group, the player's age that day and a handful of clocks; plus static context (bio, recruiting rank, destination team).
+Inputs are every tracked game before the season's cutoff (1 October): 6.6 million player-games in the current tables, from 152 international club competitions, 78 national-team competitions, the main US showcases and the NCAA itself, each game encoded with its box score, opponent strength, competition, age group, the player's age that day and a handful of clocks; plus static context (bio, recruiting rank, prior league, and the destination team with its returning players and style of play).
 
 ## How it works
 
@@ -86,28 +81,37 @@ Inputs are every tracked game before the season's cutoff (1 October): 6.3 millio
   <img src="assets/game_tower_reference.png" alt="Game history to season forecast: the reference game tower" width="820">
 </p>
 
-The reference tower does three things. It **encodes each game** into a vector with one small shared network. It **summarizes the history** with fixed weights, an exposure-weighted long-run mean and a recency-weighted recent mean, plus the contrasts between them, so established performance and recent form are both visible, and attaches evidence about how much history there is. It **combines** that summary with the destination context, the player's age and the signed time to the target, and maps the result to the parameters of the season distribution. International games and any prior NCAA games get separate summaries. There is no learned attention, the tower has 57,363 parameters, and a game that happened after the target is simply never shown to a forward example.
+The reference tower does three things. It **encodes each game** into a vector with one small shared network. It **summarizes the history** with fixed weights, an exposure-weighted long-run mean and a recency-weighted recent mean, plus the contrasts between them, so established performance and recent form are both visible, and attaches evidence about how much history there is. It **combines** that summary with the destination context, the player's age and the signed time to the target, and maps the result to the parameters of the season distribution. International games and any prior NCAA games get separate summaries. There is no learned attention, the tower has 60,683 parameters, and a game that happened after the target is simply never shown to a forward example.
 
 The backward task updates exactly the parts a forward forecast uses: the game encoder, the fusion networks, the translator and the outcome heads. That shared path is what the experiments measure. Dates do the rest. A forward example sees only games dated before the season and released by its cutoff; a reconstruction example sees only games dated after that season ended. Nothing fitted, not even the feature standardization, may use a record released after the training cutoff.
 
 ## Does learning backward help?
-
-<p align="center">
-  <img src="assets/fig_model_evaluation_dark.png" alt="Model evaluation: probability ratios per out-of-sample season and CRPS improvement by statistic on the 2025–26 test, the model with against without post-NCAA data" width="760">
-</p>
 
 Every comparison is paired on the same players, scored by the log probability the model assigns to the season that happened, with a **strict control** that never sees a game dated after a player's first college season. Rolling folds, dated cutoffs, one registered one-shot test.
 
 > [!NOTE]
 > Every season shown is out of sample. Each row's models were trained only on seasons before the one scored, every input game was released before the forecast cutoff, and the 2025–26 comparison was registered before that season was scored.
 
-| Freshmen with international, national-team or showcase games | Gain, nats per player [95% CI] | Probability ratio | Share improved |
-|---|---|---|---|
-| 2021–22, held out (n 105) | **+1.75** [+0.85, +2.64] | 5.7× | 67% |
-| 2022–23, held out, two fits averaged (n 124) | **+0.85** [+0.34, +1.36] | 2.3× | 59% |
-| 2025–26, registered test, two fits averaged (n 307) | **+0.39** [+0.10, +0.68] | 1.5× | 50% |
+<p align="center">
+  <img src="assets/fig_evidence_dark.png" alt="Later-career training, season by season: probability ratios with 95% intervals for freshmen with tracked pre-college games. 2021–22, four fits: 3.3× [2.1, 5.2]. 2022–23, four fits: 2.6× [1.6, 4.2]; a season further ahead: 2.4× [1.5, 4.0]. 2023–24, a season further ahead: 2.2× [1.5, 3.3]. 2025–26, registered one-shot test, scored September 2026: 1.5× [1.1, 2.0]." width="860">
+</p>
 
-The probability ratio is e^gain: the seasons that actually happened were that many times more probable, as a geometric mean over players, under the model that learned backward. Bold marks a 95% interval above zero. Each fit separately: 2022–23 +0.84 [+0.18, +1.50] and +0.86 [+0.31, +1.41]; 2025–26 +0.26 [−0.12, +0.64] for the registered primary fit and +0.52 [+0.16, +0.88] for the replication fit. The held-out cohorts are players with international or national-team games; the test cohort also counts the 23 freshmen whose only tracked games are US showcases. On the test, the continuous ranked probability score (CRPS) improves by 6–8% for season minutes, points, rebounds and assists (right panel).
+| Freshmen with international, national-team or showcase games | Fits | Gain, nats per player [95% CI] | Probability ratio | Share improved |
+|---|---|---|---|---|
+| 2021–22, held out (n 105) | four | **+1.18** [+0.73, +1.64] | 3.3× | 73% |
+| 2022–23, held out (n 124) | four | **+0.97** [+0.50, +1.44] | 2.6× | 65% |
+| 2022–23, a season further ahead (n 124) | two, mixed | **+0.88** [+0.39, +1.38] | 2.4× | |
+| 2023–24, a season further ahead (n 153) | two, mixed | **+0.80** [+0.40, +1.20] | 2.2× | |
+| 2025–26, registered one-shot test (n 307) | two | **+0.39** [+0.10, +0.68] | 1.5× | 50% |
+
+The probability ratio is e^gain: the seasons that actually happened were that many times more probable, as a geometric mean over players, under the model that learned backward. Bold marks a 95% interval above zero. Single fits: 2021–22 +1.08, +1.24, +1.63 and +0.79, every interval above zero; 2022–23 +0.53, +2.10, +0.54 and +0.72, all positive with two intervals above zero; the test +0.26 [−0.12, +0.64] for the registered primary fit and +0.52 [+0.16, +0.88] for the replication fit. "A season further ahead" is the deployment horizon: the model is trained through season *v*−2, stopped on *v*−1 and scored on *v*+1, reading season *v* only as history, and its two fits are mixed as the published forecasts are. The held-out cohorts are players with international or national-team games; the test cohort also counts the 23 freshmen whose only tracked games are US showcases. On the test, the continuous ranked probability score (CRPS) improves by 6–8% for season minutes, points, rebounds and assists.
+
+For international entrants alone (n 94 and 105) the four-fit gains are +1.17 [+0.68, +1.67] and +0.92 [+0.46, +1.39], positive in all eight fits. The benefit is selective: freshmen without tracked games lose a little when the careers are added (−0.06 [−0.09, −0.02] and −0.03 [−0.07, +0.02] nats), and all freshmen together gain +0.05 and +0.06, with intervals touching zero.
+
+**Why is the gain smaller in 2025–26?** We have more forward examples. The backward task matters most when direct examples of the international-to-NCAA move are scarce, and they are becoming less scarce: the fits scored on 2021–22 had seen about 1,600 international entrants' first seasons, the fits scored on 2025–26 about 2,100, and the 2025–26 entering class is far larger than any before it (313 entrants, against at most 181). As the direct evidence grows, the control already knows more of what the later careers teach. The test cohort is also broader and more than twice as large as the held-out ones, and no experiment here separates these effects.
+
+> [!IMPORTANT]
+> The first four rows are development evidence. They are out of sample, but they had been inspected, and they were scored in November 2026 after three blocks of input were added to the model (see [What we tried next](#what-we-tried-next)); those inputs were chosen on 2021–22 and 2022–23, on overall accuracy rather than on this comparison. The registered test was scored once, in September 2026, with the inputs the model had then. A one-shot test is not rescored, so the next test is the 2026–27 season now being played.
 
 <details>
 <summary><b>Terms used on this page</b></summary>
@@ -116,29 +120,46 @@ The probability ratio is e^gain: the seasons that actually happened were that ma
 - **Probability ratio.** e^gain: the geometric mean, over players, of how many times more probable the actual season was under the full model than under the control.
 - **CRPS.** The continuous ranked probability score: the expected distance between a forecast distribution and the value that happened, in the statistic's own units; lower is better. Skill is the share of the control's CRPS that the full model removes.
 - **Strict control.** The same model trained without any game dated after a player's first college season, so it never learns from later careers.
-- **Held-out season.** A season scored once, by models trained only on earlier seasons. The **registered test**, 2025–26, had its comparison and metrics written down before it was scored.
-- **Fit.** One training run with one random seed. 2022–23 and 2025–26 were each fitted twice; the rows above average the two.
+- **Held-out season.** A season scored by fits trained only on earlier seasons. The **registered test**, 2025–26, had its comparison and metrics written down before it was scored, and was scored once.
+- **Fit.** One training run with one random seed. 2021–22 and 2022–23 were each fitted four times and the registered test twice; a row averages its fits' gains player by player before the interval is taken. "Mixed" means the fits' forecast distributions are averaged first, as in the published forecasts.
 
 </details>
 
 ### Things the abstract had no room for
 
-The points on the loss weight, first-season labels, re-weighting and the 793-player holdout come from robustness runs that are not part of the release; the rest can be checked against it.
+These analyses were run on the fits of September 2026, before the model's inputs were extended; where they quote gains for 2021–22 and 2022–23, they are those fits' gains (+1.75, and +0.84 and +0.86). The points on the loss weight, first-season labels, re-weighting and the 793-player holdout come from robustness runs that are not part of the release; the rest can be checked against it.
 
 - **The gain is a breakout detector.** Per-player gains are heavy-tailed: in 2022–23 the ten largest cases carry 89% and 77% of the summed gain in the two fits (mean +0.84 → +0.10 and +0.86 → +0.22 without them), and 69% in 2021–22. The median player gains a modest 1.2–1.7× in probability. What the auxiliary data buys is the ability to take seriously the international freshman who becomes a real contributor, which the control treats as near-impossible.
 - **Where the gain lives.** On the held-out seasons most of it is *production given playing time* (+1.26, +0.63 and +0.76 nats, every interval above zero); playing time adds less (+0.49 in 2021–22; +0.22 and +0.10 in 2022–23, intervals crossing zero), and shooting percentages almost nothing. On the registered test the balance shifted toward playing time (replication fit: +0.33 against +0.19 for production). Freshmen without any international or national-team history do not benefit: a small loss on the held-out seasons (−0.08 to −0.10 nats, intervals below zero) and no difference on the test (−0.04 and −0.01).
 - **Against the recruiting industry.** On the registered 2025–26 test the full model's rank correlation with realized minutes was 0.40–0.43 against 0.23 for the 247Sports composite, with points 0.43–0.46 against 0.28, and its AUC for identifying 400-minute contributors 0.69–0.72 against 0.61 (all 307 players; recruits without a composite rank are placed last, ties broken by height).
-- **How much more auxiliary signal is there?** Tripling the weight of the backward task changed nothing (−0.03 [−0.32, +0.26]). Re-weighting training toward first seasons helps the big no-history cohort (+0.05 to +0.23 nats) and is neutral for the history cohorts. The next gains will come from architecture and data coverage, not from the loss.
+- **How much more auxiliary signal is there?** Tripling the weight of the backward task changed nothing (−0.03 [−0.32, +0.26]). Re-weighting training toward first seasons helps the big no-history cohort (+0.05 to +0.23 nats) and is neutral for the history cohorts. We expected the next gains to come from architecture and data coverage rather than the loss; [What we tried next](#what-we-tried-next) reports how that went.
 - **The ranking power is the system's; the paired gain is the data's.** The strict control also beats the 247Sports composite at ranking (rank correlation with minutes 0.37, with points 0.41–0.42, AUC 0.68–0.69). What the former players' careers add shows up in the probability assigned to whole seasons, not in a reshuffled ranking.
 - **Every college season is a teacher.** Restricting every training label, forward and backward, to first seasons (in both arms) shrinks the paired gains to +0.21, +0.12 and −0.09 nats. Later college seasons supply three times as many reconstruction labels (26,029 against 7,849 on one fold) and sit closer in time to the professional careers.
 - **Careers are long.** The median post-college game lies 7.6 years after the player's first NCAA season; a four-year window after college would discard 89% of them. The model uses every later season available at the training cutoff.
-- **The translation is real on unseen players.** On 793 former players held out entirely, predicting their known college seasons from their later careers alone beats an intercept-only model by 7.4 nats per season, 4.5 on freshman seasons.
+- **The backward task works on unseen players.** On 793 former players held out entirely, predicting their known college seasons from their later careers alone beats an intercept-only model by 7.4 nats per season, 4.5 on freshman seasons.
 
 <p align="center">
   <img src="assets/fig_breakout_ladder_dark.png" alt="Every international entrant of the 2025–26 test season, sorted by probability ratio" width="820">
 </p>
 
 **Hall of breakouts, 2025–26** (how many times more probable the full model found the actual season): Tomislav Buljan, New Mexico, ×20 million · Ilias Kamardine, Ole Miss, ×158,000 · Tim Rudovskii, Bryant, ×21,000 · Dylan Ducommun, Northern Illinois, ×8,200 · Thijs De Ridder, Virginia, ×5,200 · Filip Brankovic, Texas-RGV, ×3,500. The ladder above is every international entrant of that season, not just the winners: 47% improved, median ×0.94.
+
+## What we tried next
+
+Each candidate below was compared with the model it would replace, paired on the same players. For the last two the adoption rule was fixed before any score existed: a gain for international entrants on both evaluation seasons, with a 95% interval above zero, and no harm to other freshmen.
+
+| Candidate | What changed | What happened | Verdict |
+|---|---|---|---|
+| **More inputs** | Each player's prior league, the destination team's returning players and style of play, a fill for missing recruiting ranks | All freshmen +0.19 to +0.30 nats in four of four paired fits; all player-seasons +0.09 to +0.23 | **Adopted**, November 2026: part of the model on this page |
+| Still more inputs | International plus-minus anchors and usage shares; per-game league strength; lower-division box scores | The first hurt every cohort; the others did not hold up for international entrants | Not adopted |
+| A nearer backward reader | Which of a former player's later games the backward task reads | No detectable change for entrants; −0.09 nats over all player-seasons in one of two fits | Not adopted |
+| Distillation from a future-informed teacher | A teacher that sees later careers supplies shooting targets to the forecaster | All freshmen −0.01 [−0.02, +0.00]; entrants +0.03 [−0.06, +0.11] (one fit) | Not adopted |
+| Post-fit head adaptation | The output heads are re-fitted on the latest season's freshmen | All freshmen +0.17 [+0.15, +0.20] over two seasons; entrants +0.05 [−0.04, +0.13] | Not adopted for entrants |
+| A latent-career model | A different architecture: one evolving state per player and season, read by every league | All freshmen +0.71 [+0.65, +0.77]; entrants +0.15 [−0.15, +0.44]; returning players −0.67 [−0.72, −0.62] | Not adopted for entrants |
+
+Two of the rejected candidates are results in their own right. Head adaptation and the latent-career model both improve forecasts for freshmen at large, the group the careers do not help. Neither showed a clear gain for international entrants, who are the subject here, so the model stayed as it is.
+
+The latent-career model also sharpens the main finding. On the same two seasons, later-career training improved entrant forecasts by +0.95 [+0.60, +1.30] nats in this model and by a smaller +0.14 [+0.02, +0.27] in the latent model (the second interval includes zero when the two fits' scores are averaged instead of mixed). Later-career supervision helped in both; how much it helps depends on the modelling recipe. All of this is development evidence on seasons already inspected, from one tested recipe per candidate.
 
 ## Where freshmen come from, and how production travels
 
@@ -162,7 +183,8 @@ There is a formal version of this. Projecting the fitted model onto standardized
 
 - **Later careers alone cannot identify the forward mapping.** Professionals and incoming recruits differ in age, selection, role and competition. Signed time and age let the model represent those differences; they do not erase them, which is why forward labels and forward validation stay essential and why a zero-weight comparator is always run.
 - **Opportunity is the hard part.** A freshman's minutes depend on a roster that is only partly known before arrival. Prior team ratings and returning-production shares describe the destination; they do not allocate its minutes. That is why the exhibits show efficiencies, and why minutes forecasts carry wide intervals.
-- **A probabilistic output is not automatically calibrated.** Interval coverage and the calibration of the rotation probabilities are empirical checks, still being run, not consequences of the model's form.
+- **Later careers are not shown to be necessary.** The gain is established in this architecture. In one two-season study a differently built model, trained without later international careers, had a nearly identical entrant score to this model trained with them (difference +0.005 [−0.295, +0.305] nats, an interval too wide to call them equal). The claim is that later careers help here, and that a shared translation between leagues is the hypothesis that motivated trying; the forecasting gains support that transfer without establishing its mechanism.
+- **A probabilistic output is not automatically calibrated.** On two development seasons the model's 90% intervals for season minutes, points, rebounds and assists covered 85–90% of international entrants' outcomes and 78–83% of all freshmen's, so its intervals are somewhat too narrow for freshmen at large. A post-fit correction narrows that gap (see [What we tried next](#what-we-tried-next)) and was not adopted, because it showed no clear gain for entrants.
 - **Coverage drifts.** Date of birth is missing for 27% of eligible player-seasons in 2017–18 and 72% in 2025–26 (international entrants: at most 3% in any season); starter flags on international games went from 56% to 100% coverage in the current data build. Masks and evidence features carry the known share, but a mask does not remove the shift.
 
 ## Forecasts for 2026–27
@@ -170,9 +192,9 @@ There is a formal version of this. Projecting the fitted model onto standardized
 The prospective cohort is every 2026–27 freshman in his first NCAA roster season for whom the model has at least one tracked pre-college game: **282 players**, 220 of them international. By history: 141 club and national team, 47 club only, 69 national team only, 25 US showcase only. Median history: 28 tracked games; a quarter have 74 or more.
 
 > [!IMPORTANT]
-> The inputs were frozen on 1 October 2026, before the season; no 2026–27 game enters them (the latest NCAA game in the tables is from 6 April 2026). The forecasts were reissued on 10 November 2026, a week into the season, from models retrained with the production feature set, and will be scored when the season ends in March 2027. They are a commitment, not a validation. The 1 October forecasts from the earlier models remain in the `ssac27-abstract` release.
+> The inputs were frozen on 1 October 2026, before the season; no 2026–27 game enters them (the latest NCAA game in the tables is from 6 April 2026). The forecasts were reissued on 10 November 2026, a week into the season, after the model's inputs were extended, and will be scored when the season ends in March 2027. They are a commitment, not a validation. The 1 October issue remains in the `ssac27-abstract` release.
 
-All 282 were forecast by the deployment models: trained with the production feature set through 2024–25 plus half of the 2025–26 players and stopped on the other half, twenty epochs each, the two halves pooled; 2,000 simulated seasons per player, once with and once without the former players' careers in training. Minutes per game are conditional on appearing. The frozen files carry the run names and data digests.
+All 282 were forecast by the deployment fits: trained through 2024–25 plus half of the 2025–26 players and stopped on the other half, twenty epochs each, the two halves pooled; 2,000 simulated seasons per player, once with and once without the former players' careers in training. Minutes per game are conditional on appearing. The frozen files carry the run names and data digests.
 
 <p align="center">
   <img src="assets/fig_forecast_2027_dark.png" alt="2026–27 forecasts for fourteen high-profile international freshmen: chance of a 400-minute season, season minutes and PER, with and without the post-NCAA data" width="860">
@@ -234,21 +256,23 @@ All 282 freshmen, with and without the careers side by side, are in `FORECASTS_2
 - **Rolling folds.** Fold *v* trains on seasons through *v*−2, chooses its stopping epoch on *v*−1, and scores *v* once. Development 2019–20 to 2022–23; selection 2023–24 and 2024–25; **registered one-shot test 2025–26**; deployment 2026–27. The paired comparisons with the strict control were run on the two most recent development folds, 2021–22 and 2022–23.
 - **Cross-stopping for deployment.** The last labeled season is split into two fixed halves; one model trains on everything plus half 1 and stops on half 0, the second the reverse; the forecast is their mixture. The registered test used no cross-stopping: its models trained through 2023–24 and stopped on 2024–25, and 2025–26 entered nothing until it was scored. Only then did it become the last labeled season for deployment.
 - **Arms.** `A` forward only; `AR` forward plus the backward task on the former players' careers; the strict control `A⁻` additionally never sees a game dated after a player's first college season, in any input, pool or window. Against the ordinary arm `A`, which keeps those later games as inputs but has no backward task, the full model gains +1.60 [+0.70, +2.50] in 2021–22 and +0.01 [−0.47, +0.50] and +0.73 [+0.19, +1.27] in the two 2022–23 fits.
+- **Evaluations since the test.** After its inputs were extended in November 2026 the model was paired with its strict control on folds 2021–22 and 2022–23, four fits each (eight pairs), and on two chronological evaluations a season further ahead (2022–23 and 2023–24, two fits mixed). Candidates for replacing it were scored on those two chronological evaluations. None of this touched 2025–26.
 - **Scoring.** Marginal log probability of the observed season, overtime summed out, verified against a quadrature with twice the nodes; paired differences with player-level standard errors; every comparison on identical units.
 - **Reproducibility.** Write-once run manifests with the training curve, SHA-256 of the tables and the test registration; the one-shot test was registered before it was scored.
 
-The reference tower has 57,363 parameters and trains in about fourteen minutes an epoch on a laptop CPU; it stops after ten to twenty epochs.
+The reference tower has 60,683 parameters and trains in about fifteen minutes an epoch on a laptop CPU; a fit runs twenty epochs.
 
 ## What is in this repository
 
 | Path | What |
 |---|---|
 | `fpp/data` | Dated data contracts: calendars and cutoffs, immutable game records, nested reconstruction windows, routing of games and summaries, rolling folds, the table assembler over the upstream stores |
-| `fpp/model` | The season distribution and its observed-data likelihood (NumPy/SciPy reference and a differentiable PyTorch twin), feature construction, the game tower, pooling, heads |
-| `fpp/experiments` | Training and scoring of one arm on one fold, fold reports, intercept-only recovery |
-| `tests/` | 243 tests: likelihood identities, cutoff and leakage guards, strict-control masks, weighting, cross-stopping, every architecture option reproducing the registered model by default |
+| `fpp/model` | The season distribution and its observed-data likelihood (NumPy/SciPy reference and a differentiable PyTorch twin), feature construction, the game tower, pooling, heads; the evaluated extensions (teacher, latent-career model), off by default |
+| `fpp/experiments` | Training and scoring of one arm on one fold, fold reports, intercept-only recovery; the distillation and latent-career experiments |
+| `fpp/calibration.py` | Post-fit calibration and head adaptation, evaluated and not part of the forecasts |
+| `tests/` | 299 tests: likelihood identities, cutoff and leakage guards, strict-control masks, weighting, cross-stopping, every architecture option reproducing the registered model by default |
 | `config/protocol.json` | The calendar, cutoffs, fold layout and numerical tolerances the code enforces. Its arm letters and four-year reconstruction horizon are the original design; the recipe actually compared (the full model against the strict control, every later season, two fits) is fixed in `TEST_REGISTRATION_2026.md` in the release |
-| `replication/` | Frozen scoring scripts, the NCAA team totals and PER constants they read, the abstract source and its figure scripts, the script behind the 2026–27 figure above, and the archive checksums |
+| `replication/` | Frozen scoring scripts, the NCAA team totals and PER constants they read, the abstract source and its figure scripts, the scripts and data file behind this page's scoreboard, evidence and 2026–27 figures, and the archive checksums |
 | `data/` | The 2026–27 forecast cohort |
 | `assets/` | The figures shown here |
 
@@ -259,7 +283,7 @@ Not in the repository: the upstream game databases (built from public box scores
 ```sh
 python -m venv .venv && . .venv/bin/activate
 python -m pip install -e ".[model,data,dev]"
-python -m pytest tests -q                      # 243 tests, about two minutes
+python -m pytest tests -q                      # 299 tests, about three minutes
 fpp smoke --out artifacts/smoke.json --draws 200 --score-first 3     # synthetic seasons, no data needed
 fpp gradcheck --out artifacts/gradcheck.json                          # differentiable likelihood vs the reference
 ```
@@ -275,13 +299,13 @@ fpp train --tables cache/tables_v19 --fold 2023 --arm A --exclude-post-first-sea
 fpp report-run --run cache/runs/ARfull_2023 --compare cache/runs/control_2023 --tables cache/tables_v19
 ```
 
-On tables v11 and later, `fpp train` uses the production feature set by default: the base inputs plus each player's prior league, the destination team's returning players and playing style, and the On3 recruiting-rank fill. Saved runs record the feature set they were trained with and are always read with it.
+On tables v11 and later, `fpp train` uses the full input set by default: the base inputs plus each player's prior league, the destination team's returning players and playing style, and the On3 recruiting-rank fill. Saved runs record the feature set they were trained with and are always read with it.
 
 Useful flags: `--cross-stop 0|1` and `--weighting season_balanced --first-year-share 0.5`; `fpp train --help` lists the rest. The architecture defaults reproduce the registered tower; the full model also takes `--recon-horizon-years none --recon-k 1,2,3,all`, as above.
 
 ## Replicate the abstract
 
-Everything behind the SSAC27 abstract runs from flat files; no database is needed. The data and the saved models are attached to two GitHub releases, with SHA-256 sums in [`replication/SHA256SUMS`](replication/SHA256SUMS): `ssac27-abstract` holds the abstract's archives and the 1 October 2026 forecasts (about 475 MB in all); `production-2026-11` holds the production model behind the 2026–27 forecasts above.
+Everything behind the SSAC27 abstract runs from flat files; no database is needed. The data and the saved models are attached to two GitHub releases, with SHA-256 sums in [`replication/SHA256SUMS`](replication/SHA256SUMS): `ssac27-abstract` holds the abstract's archives and the 1 October 2026 forecasts (about 475 MB in all); `production-2026-11` holds the deployment fits behind the 2026–27 forecasts above.
 
 | Archive | Contents |
 |---|---|
@@ -350,7 +374,18 @@ What to expect (the registered values; Monte Carlo steps reproduce to the precis
 | 2025–26 test, Spearman with season minutes / AUC for 400 minutes | 0.40–0.43 / 0.69–0.72 (composite 0.23 / 0.61) | `TEST_IDENTIFICATION_2026_s*.md`, `TEST_RESULTS_2026.md` |
 | Freshmen without such history | −0.08, −0.09 and −0.10 nats on the held-out seasons (intervals below zero); −0.04 and −0.01 on the test (intervals include zero) | the same `FIRST_RESULT_*` and `TEST_RESULTS_2026.md` |
 
-The figure's rows average the two fits of a season player by player (`replication/abstract/figures/evidence_crps.csv` records every value plotted). Not covered by the release: the league and translation figures, which read the international RAPM and league databases, and the robustness runs noted under "Things the abstract had no room for".
+The figure's rows average the two fits of a season player by player (`replication/abstract/figures/evidence_crps.csv` records every value plotted). Not covered by the release: the league and translation figures, which read the international RAPM and league databases, and the robustness runs noted under "Things the abstract had no room for". Not yet in a release: the November 2026 paired fits behind this page's 2021–22, 2022–23 and 2023–24 numbers and the candidate studies under "What we tried next"; the values plotted on this page are in [`replication/readme/evidence.csv`](replication/readme/evidence.csv), and their run files will be added to a release.
+
+The abstract was written in September 2026, before the model's inputs were extended, from one or two fits per season. Its numbers for 2021–22 and 2022–23 (5.7× and 2.3×) are therefore not the ones at the top of this page (3.3× and 2.6×, four November fits each); the registered test is the same in both.
+
+<details>
+<summary><b>The abstract's evidence figure</b></summary>
+
+<p align="center">
+  <img src="assets/fig_model_evaluation_dark.png" alt="The abstract's figure: probability ratios per out-of-sample season (5.75× in 2021–22, 2.34× in 2022–23, 1.48× on the 2025–26 test) and CRPS improvement by statistic on the 2025–26 test, the model with against without post-NCAA data" width="760">
+</p>
+
+</details>
 
 ## People
 
