@@ -103,6 +103,119 @@ def test_map_recovers_injected_offsets_and_laplace_is_proper():
     assert torch.isfinite(mix2).all()
 
 
+def test_head_parameters_match_outcome_heads_and_zero_increment_is_identity():
+    """B2 (D-114): the standalone parameter map equals the registered head's forward; HeadCorrection at φ = 0 is the identity;
+    increments act row by row; a row subset leaves the other outputs untouched."""
+    from fpp.calibration import HEAD_OUTPUTS, HeadCorrection, head_parameters
+    from fpp.model.tower import OutcomeHeads
+    torch.manual_seed(0)
+    heads = OutcomeHeads(width=4).double()
+    u = torch.randn(30, 4, dtype=D)
+    W, b = heads.linear.weight.detach(), heads.linear.bias.detach()
+    ref = {k: v.to(D) for k, v in heads(u).items()}
+    mine = head_parameters(u @ W.T + b)
+    for k, v in ref.items():
+        assert torch.allclose(mine[k], v, atol=1e-12), k
+    corr = HeadCorrection(W, b, u.mean(0), u.std(0))
+    assert len(HEAD_OUTPUTS) == 35 and corr.size == 35 * 5 == len(corr.prior_scales())
+    same = corr.transform({}, torch.zeros(corr.size, dtype=D), u)
+    for k, v in ref.items():
+        assert torch.allclose(same[k], v, atol=1e-12), k
+    phi = torch.zeros(corr.size, dtype=D)
+    phi[corr.width] = 0.3                                    # row 0 (pi_g): its bias increment sits after its 4 weights
+    out = corr.transform({}, phi, u)
+    assert not torch.allclose(out["pi_g"], ref["pi_g"]) and torch.allclose(out["alpha_g"], ref["alpha_g"])
+    sub = HeadCorrection(W, b, u.mean(0), u.std(0), rows=(1, 2))
+    assert sub.size == 2 * 5
+    out2 = sub.transform({}, torch.full((sub.size,), 0.2, dtype=D), u)
+    assert torch.allclose(out2["pi_g"], ref["pi_g"]) and not torch.allclose(out2["alpha_g"], ref["alpha_g"])
+    # Prior scales: weights at s_w / sqrt(P), biases at s_b; the prior is proper and the description has one row per output.
+    s = corr.prior_scales().reshape(35, 5)
+    assert torch.allclose(s[:, :4], torch.full((35, 4), 0.20 / 2, dtype=D)) and torch.allclose(s[:, 4], torch.full((35,), 0.20, dtype=D))
+    assert torch.isfinite(corr.log_prior(torch.randn(corr.size, dtype=D)))
+    assert len(corr.describe(np.zeros(corr.size), np.ones(corr.size))) == 35
+    with pytest.raises(ValueError):
+        HeadCorrection(W, b, u.mean(0), torch.zeros(4, dtype=D))
+
+
+def test_head_laplace_matches_generic_finite_differences():
+    """The chain-rule Hessian (per-unit curvature in the head's output space) reproduces the generic φ-space finite-difference
+    Laplace covariance on a small head block."""
+    from fpp.calibration import HeadCorrection, head_laplace_covariance, head_parameters
+    from fpp.model.tower import OutcomeHeads
+    rng = np.random.default_rng(5)
+    torch.manual_seed(1)
+    n, P = 40, 2
+    heads = OutcomeHeads(width=P).double()
+    W, b = heads.linear.weight.detach(), heads.linear.bias.detach()
+    u = torch.as_tensor(rng.normal(size=(n, P)), dtype=D)
+    corr = HeadCorrection(W, b, u.mean(0), u.std(0), rows=(0, 1, 2, 29))     # participation, games shapes, one makes row
+    params = head_parameters(u @ W.T + b)
+    phi_true = torch.zeros(corr.size, dtype=D)
+    phi_true[corr.width] = 0.5                                              # participation bias
+    batch = synthetic_batch(params, corr, phi_true, u, rng)
+    lik = DifferentiableSeasonLikelihood(None, quadrature_nodes=8)
+    phi_map, info = fit_map(lik, batch, params, corr, u, max_iter=40)
+    assert info["final"] < info["start"]
+    cov_fast, h_fast = head_laplace_covariance(lik, batch, corr, phi_map, u)
+    cov_slow, h_slow = laplace_covariance(lik, batch, params, corr, phi_map, u)
+    assert h_fast["jitter_added"] == 0 and h_slow["jitter_added"] == 0
+    assert torch.allclose(cov_fast, cov_slow, rtol=1e-3, atol=1e-6), float((cov_fast - cov_slow).abs().max())
+    assert abs(h_fast["min_eigenvalue"] - h_slow["min_eigenvalue"]) < 1e-3 * h_slow["min_eigenvalue"]
+    # The mixture machinery accepts the head correction unchanged.
+    draws = draw_posterior(phi_map, cov_fast, 4, seed=0)
+    mix, per = mixture_log_scores(lik, batch, params, corr, draws, u)
+    assert per.shape == (4, n) and torch.isfinite(mix).all()
+
+
+def test_shooting_factorization_matches_full_scorer_and_psis_smoothing_is_sane():
+    """A correction that changes only the shooting parameters factorizes exactly: log p_φ = c + s(φ) with c from one full pass
+    (reviser, 2026-11-12); uniform weights reproduce the plain mixture; block mixtures average the per-draw scores; Pareto
+    smoothing returns normalized weights and the same k̂ as the diagnostic."""
+    from fpp.calibration import (MAKES_ROWS, HeadCorrection, MakesFactorLikelihood, block_mixtures, head_parameters, psis_smooth,
+                                 psis_threshold, shooting_constant, weighted_mixture)
+    from fpp.model.tower import OutcomeHeads
+    rng = np.random.default_rng(11)
+    torch.manual_seed(2)
+    n, P = 36, 3
+    heads = OutcomeHeads(width=P).double()
+    W, b = heads.linear.weight.detach(), heads.linear.bias.detach()
+    u = torch.as_tensor(rng.normal(size=(n, P)), dtype=D)
+    params = head_parameters(u @ W.T + b)
+    head_corr = HeadCorrection(W, b, u.mean(0), u.std(0), rows=MAKES_ROWS)
+    batch = synthetic_batch(params, head_corr, torch.zeros(head_corr.size, dtype=D), u, rng)
+    lik = DifferentiableSeasonLikelihood(None, quadrature_nodes=8)
+    mk = MakesFactorLikelihood()
+    des, z = design_for(n, rng)
+    for corr, zz in ((head_corr, u), (Correction(des, components=("makes",)), z)):
+        c = shooting_constant(lik, batch, params, corr, zz)
+        phi = torch.as_tensor(rng.normal(0, 0.3, corr.size), dtype=D)
+        full = log_likelihood(lik, batch, params, corr, phi, zz)
+        fact = c + log_likelihood(mk, batch, params, corr, phi, zz)
+        assert torch.allclose(full, fact, atol=1e-9), float((full - fact).abs().max())
+        draws = torch.as_tensor(rng.normal(0, 0.2, (8, corr.size)), dtype=D)
+        mix, per = mixture_log_scores(lik, batch, params, corr, draws, zz)
+        per_fast = torch.stack([log_likelihood(mk, batch, params, corr, d, zz) for d in draws]) + c[None, :]
+        assert torch.allclose(torch.logsumexp(per_fast, 0) - np.log(8), mix, atol=1e-9)
+        assert torch.allclose(weighted_mixture(per, np.full(8, -np.log(8))), mix, atol=1e-12)
+        blocks = block_mixtures(per, 4)
+        assert blocks.shape == (4, n) and torch.allclose(torch.logsumexp(blocks, 0) - np.log(4), mix, atol=1e-12)
+    # A component that is not shooting-only breaks the factorization (the scripts assert the restriction).
+    other = Correction(des, components=("part", "makes"))
+    phi = torch.zeros(other.size, dtype=D)
+    phi[0] = 0.8
+    c = shooting_constant(lik, batch, params, other, z)
+    assert not torch.allclose(log_likelihood(lik, batch, params, other, phi, z), c + log_likelihood(mk, batch, params, other, phi, z), atol=1e-6)
+    # PSIS smoothing.
+    lw = rng.normal(0, 0.4, 200)
+    sm = psis_smooth(lw)
+    assert abs(np.exp(sm["log_weights"]).sum() - 1) < 1e-12 and sm["ess_smoothed"] >= sm["ess"] * 0.99
+    assert abs(sm["khat"] - psis_khat(lw)["khat"]) < 1e-12
+    assert abs(psis_threshold(100) - 0.5) < 1e-12 and abs(psis_threshold(10_000) - 0.7) < 1e-12
+    flat = psis_smooth(np.zeros(50))["log_weights"]
+    assert np.allclose(flat, -np.log(50))
+
+
 def test_gaussian_logpdf_matches_scipy():
     from scipy.stats import multivariate_normal
     rng = np.random.default_rng(5)
