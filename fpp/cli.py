@@ -94,7 +94,7 @@ def main(argv=None) -> int:
     train.add_argument("--first-year-share", default="natural",
                        help="D-062: mass share of first-season units per direction (e.g. 0.5), also the early-stopping weighting; "
                             "'natural' keeps the base weights")
-    train.add_argument("--feature-schema", choices=["auto", "v7", "v8", "v9"], default="auto",
+    train.add_argument("--feature-schema", choices=["auto", "v7", "v8", "v9", "v10"], default="auto",
                        help="D-065: 'auto' = v8 when the tables carry recruit_status else v7 (the pre-D-065 rule); v9 adds --feature-blocks")
     train.add_argument("--feature-blocks", default=None,
                        help="v9 blocks, comma-separated (default: all): prior_league, usage, destination, intl_rapm, on3")
@@ -109,6 +109,9 @@ def main(argv=None) -> int:
     train.add_argument("--average-last", type=int, default=1, help="D-070: average the weights of this many epochs ending at the best (1 = off)")
     train.add_argument("--head-hidden", type=int, default=0, help="D-074: GELU hidden layer of this size before the outcome heads (0 = registered linear heads)")
     train.add_argument("--attention-pool", action="store_true", help="D-074: learned attention mean over the games in each channel's fusion input")
+    train.add_argument("--train-overtime-tail", type=float, default=None,
+                       help="gradient steps only: sum overtime for rows with unobserved overtime until the omitted Poisson mass is below this (e.g. 1e-10) "
+                            "instead of the rigorous adaptive bound; every score keeps the adaptive rule (default: off)")
     train.add_argument("--lr-decay", type=float, default=1.0, help="D-074: multiply the learning rate by this factor at every epoch without improvement (1 = off)")
     train.add_argument("--history-dropout", type=float, default=0.0,
                        help="D-097: remove a forward example's whole international/national history with this probability during training")
@@ -145,7 +148,7 @@ def main(argv=None) -> int:
     teacher.add_argument("--lr", type=float, default=1e-3)
     teacher.add_argument("--nodes-train", type=int, default=24)
     teacher.add_argument("--threads", type=int, default=8)
-    teacher.add_argument("--feature-schema", choices=["auto", "v7", "v8", "v9"], default="auto")
+    teacher.add_argument("--feature-schema", choices=["auto", "v7", "v8", "v9", "v10"], default="auto")
     teacher.add_argument("--feature-blocks", default=None)
     teacher.add_argument("--no-row-guard", dest="row_guard", action="store_false")
     teacher.add_argument("--recon-horizon-years", default="none")
@@ -231,7 +234,7 @@ def main(argv=None) -> int:
                               teacher_caches=args.teacher_cache, distill_alpha=args.distill_alpha, distill_beta=args.distill_beta,
                               width=args.width, hidden=args.hidden, direction_film=args.direction_film, future_weight=args.future_weight,
                               game_dropout=args.game_dropout, average_last=args.average_last,
-                              head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay,
+                              head_hidden=args.head_hidden, attention_pool=args.attention_pool, lr_decay=args.lr_decay, train_overtime_tail=args.train_overtime_tail,
                               row_guard=args.row_guard, history_dropout=args.history_dropout, static_branch=args.static_branch,
                               history_dropout_scope=args.history_dropout_scope, batch_normalizer=args.batch_normalizer,
                               backward_reader=args.backward_reader)

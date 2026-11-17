@@ -347,7 +347,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             feature_schema: str = "auto", feature_blocks=None, cross_stop: int | None = None,
             width: int = 32, hidden: int = 64, direction_film: bool = False, future_weight: float = 0.0,
             game_dropout: float = 0.0, average_last: int = 1,
-            head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0,
+            head_hidden: int = 0, attention_pool: bool = False, lr_decay: float = 1.0, train_overtime_tail: float | None = None,
             row_guard: bool = True, test_season: int | None = None, history_dropout: float = 0.0,
             static_branch: bool = False, history_dropout_scope: str = "any", batch_normalizer: str = "weight",
             teacher_caches=None, distill_alpha: float = 0.0, distill_beta: float = 0.0, backward_reader: str = "latest") -> dict:
@@ -549,12 +549,18 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
     epoch_states = {}                                   # D-070 checkpoint averaging: epoch -> state dict
     updates = {"forward_steps": 0, "forward_examples": 0, "reconstruction_examples": 0, "lambda_plus": lambda_plus}
 
+    def _overtime_terms(sb, params):
+        # Gradient steps only: per-row term counts from the omitted Poisson mass instead of the rigorous adaptive bound
+        # (which costs about thirty terms per row with unobserved overtime). None keeps the adaptive sum. Every score —
+        # the stopping score, the fold score, the verification — uses the adaptive rule regardless.
+        return None if train_overtime_tail is None else lik_train.overtime_terms_for_tail(sb, params["nu"], train_overtime_tail)
+
     def _term(batch, sel_weight, distill: bool = False):
         sb = season_batch(batch)
         found = targets.rows_for(batch["unit_id"]) if (distill and targets is not None and (distill_alpha > 0 or distill_beta > 0)) else None
         if found is None:
             params = tower(batch)
-            lp, _ = lik_train.log_prob(sb, params=params)
+            lp, _ = lik_train.log_prob(sb, params=params, overtime_terms=_overtime_terms(sb, params))
             term = batch_loss(lp, batch["weight"], batch["unit_id"], batch_normalizer)   # D-104: a non-finite row stops the run
         else:
             # Forward minibatch with teacher targets: ℓ_other + (1 − αR) ℓ_shoot + αR·CE per unit (the makes factor leaves the
@@ -565,7 +571,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
             params = tower.heads(u)
             if tower.future_head is not None:
                 params["future"] = tower.future_head(u).squeeze(-1)
-            lp, _ = lik_train.log_prob(sb, params=params)
+            lp, _ = lik_train.log_prob(sb, params=params, overtime_terms=_overtime_terms(sb, params))
             has = torch.zeros(len(lp), dtype=torch.bool)
             has[torch.as_tensor(pos)] = True
             lp_makes = student_makes_logprob(params, batch["counts"])
@@ -783,7 +789,7 @@ def run_arm(*, tables: Path, fold_season: int, arm: str, seed: int, out: Path, e
                    "weighting": weighting, "first_year_share": first_year_share, "stop_criterion": stop_criterion,
                    "feature_schema": {**fs.describe(), "missing_game_fields": list(store.missing_fields)},
                    "architecture": getattr(tower, "architecture", dict(ARCHITECTURE_DEFAULTS)),
-                   "future_weight": future_weight, "game_dropout": game_dropout, "history_dropout": history_dropout, "history_dropout_scope": history_dropout_scope, "average_last": average_last, "lr_decay": lr_decay,
+                   "train_overtime_tail": train_overtime_tail, "future_weight": future_weight, "game_dropout": game_dropout, "history_dropout": history_dropout, "history_dropout_scope": history_dropout_scope, "average_last": average_last, "lr_decay": lr_decay,
                    "batch_normalizer": batch_normalizer,     # D-104: "weight" is the registered recipe; "size" is opt-in until a matched pair adopts it
                    "distillation": None if targets is None else {**targets.describe(), "alpha": distill_alpha, "beta": distill_beta,
                                                                   "caches": [str(c) for c in teacher_caches], "shooting_cross_entropy": "exact finite sums (D-109 item 5)"},

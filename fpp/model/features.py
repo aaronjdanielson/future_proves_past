@@ -66,6 +66,11 @@ STATIC_CONTINUOUS = ["age_at_cutoff", "ncaa_seasons_completed", "first_year", "h
                      "dest_prior_adj_o", "dest_prior_adj_d", "dest_prior_adj_pace", "dest_prior_games_log"]
 STATIC_CATEGORICAL = ["position", "conference", "role", "class"]                    # feature schema v7
 STATIC_CATEGORICAL_V8 = STATIC_CATEGORICAL + ["recruit_status"]                     # v8 (D-049): why a rank is missing
+# v10 (D-121): the provider's class label marks a redshirt or ineligible season on the season itself, after the fact
+# ("RS-Fr" with zero games is "Fr" the next season; the labels are all but absent from the current season's rosters), so
+# the field carries the outcome. v10 does not read the class at all: age, NCAA seasons completed, the first-year flag
+# and the role carry career stage. v7-v9 keep the field so that their saved runs reproduce.
+HINDSIGHT_CATEGORICAL = ("class",)
 EVIDENCE_NAMES = ["n_games_log", "minutes_log", "coverage_share", "span_years", "gap_to_target_years",
                   "n_seasons", "starter_known_share", "strength_known_share", "age_known_share", "truncated"]
 TARGET_COUNTS = list(BOX_FIELDS)   # A2 K2 A3 K3 Af Kf ORB DRB AST STL BLK TOV PF — the COUNT_NAMES order
@@ -168,15 +173,17 @@ def feature_schema(name: str = "v7", blocks=None) -> FeatureSchema:
             raise ValueError(f"Feature schema {name} takes no blocks")
         cats = STATIC_CATEGORICAL if name == "v7" else STATIC_CATEGORICAL_V8
         chosen = ()
-    elif name == "v9":
+    elif name in ("v9", "v10"):
         wanted = tuple(V9_DEFAULT_BLOCKS) if blocks is None else tuple(blocks)
         unknown = sorted(set(wanted) - set(BLOCKS))
         if unknown:
             raise ValueError(f"Unknown feature blocks {unknown}; known: {BLOCKS}")
         chosen = tuple(b for b in BLOCKS if b in wanted)
         cats = STATIC_CATEGORICAL_V8 + [c for b in chosen for c in BLOCK_STATIC_CATEGORICAL.get(b, [])]
+        if name == "v10":       # D-121: the provider's class is not read
+            cats = [c for c in cats if c not in HINDSIGHT_CATEGORICAL]
     else:
-        raise ValueError(f"Unknown feature schema {name!r}; known: v7, v8, v9")
+        raise ValueError(f"Unknown feature schema {name!r}; known: v7, v8, v9, v10")
     continuous = tuple(CONTINUOUS) + tuple(f for b in chosen for f in BLOCK_GAME_FIELDS.get(b, []))
     static = tuple(BASE_STATIC_CONTINUOUS) + tuple(f for b in chosen for f in BLOCK_STATIC_FIELDS.get(b, []))
     return FeatureSchema(name, chosen, continuous, static, tuple(cats))
@@ -200,7 +207,7 @@ def resolve_schema(name: str = "auto", blocks=None, units: pd.DataFrame | None =
     ``recruit_status``, else v7)."""
     if name == "auto":
         if blocks:
-            raise ValueError("Feature blocks need --feature-schema v9")
+            raise ValueError("Feature blocks need --feature-schema v9 or v10")
         if units is not None and all(c in units.columns for c in AUTO_BLOCK_COLUMNS):
             return feature_schema("v9")
         return schema_from_config(None, units)

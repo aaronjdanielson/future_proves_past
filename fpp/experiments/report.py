@@ -475,14 +475,17 @@ def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: i
 
     def predictive(params, seed_offset):
         rr = np.random.default_rng(seed + seed_offset)
-        pred = {"games": [], "minutes": [], "points": []}
+        # Shot volume and makes for twos and threes are forecast outputs in their own right (user, 2026-11-16): the same
+        # simulated seasons, so the existing columns are unchanged.
+        pred = {"games": [], "minutes": [], "points": [], "fg2a": [], "fg2m": [], "fg3a": [], "fg3m": []}
         lo = {k: [] for k in pred}
         hi = {k: [] for k in pred}
         for i in range(len(units)):
             sm = SeasonModel(row_parameters(params, i))
             samples = [sm.sample(int(schedules[i]), rr) for _ in range(draws)]
             for k, values in (("games", [s.games for s in samples]), ("minutes", [s.recorded_minutes for s in samples]),
-                              ("points", [s.points for s in samples])):
+                              ("points", [s.points for s in samples]), ("fg2a", [s.counts["A2"] for s in samples]), ("fg2m", [s.counts["K2"] for s in samples]),
+                              ("fg3a", [s.counts["A3"] for s in samples]), ("fg3m", [s.counts["K3"] for s in samples])):
                 arr = np.asarray(values, dtype=float)
                 pred[k].append(arr.mean())
                 lo[k].append(np.quantile(arr, 0.05))
@@ -499,6 +502,9 @@ def report_run(*, run: Path, tables: Path, compare: Path | None = None, draws: i
                           "nll_this": nll})
     counts_obs = units[F.TARGET_COUNTS].values.astype(float)
     ci = {n: i for i, n in enumerate(COUNT_NAMES)}
+    for key, name in (("fg2a", "A2"), ("fg2m", "K2"), ("fg3a", "A3"), ("fg3m", "K3")):
+        observed[key] = counts_obs[:, ci[name]]
+        table[f"obs_{key}"] = observed[key]
     with np.errstate(divide="ignore", invalid="ignore"):
         table["obs_2p_pct"] = counts_obs[:, ci["K2"]] / counts_obs[:, ci["A2"]]
         table["obs_3p_pct"] = counts_obs[:, ci["K3"]] / counts_obs[:, ci["A3"]]

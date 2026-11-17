@@ -126,12 +126,27 @@ def negative_binomial_logpmf(k, mean, dispersion):
     return torch.where(k >= 0, logp, torch.full_like(logp, NEG_INF))
 
 
-def truncated_negative_binomial_logpmf(k, mean, dispersion, cap):
-    """NB restricted to 0..cap and renormalized there; cap is a data tensor [B]."""
+def truncated_negative_binomial_logpmf(k, mean, dispersion, cap, fast: bool = False):
+    """NB restricted to 0..cap and renormalized there; cap is a data tensor [B].
+
+    ``fast`` computes the same normalizer with the node-independent part of the mass function taken out of the
+    [B, K, C] support tensor: log NB(c; mean, d) = A[b, c] − d·log1p(mean/d) + c·x[b, k] with A = lgamma(c + d) −
+    lgamma(d) − lgamma(c + 1) and x = log(mean) − log(mean + d), so the sum over the support is one product and one
+    logsumexp instead of the whole mass function on [B, K, C]. Used by the vectorized path for per-row dispersions and
+    positive means; anything else takes the general route below."""
     cap_max = int(cap.max().item())
     support = torch.arange(cap_max + 1, dtype=DTYPE)                       # [C]
     shape = mean.shape                                                       # [B, K]
     dispersion = torch.as_tensor(dispersion, dtype=DTYPE)
+    if fast and len(shape) == 2 and dispersion.shape == (shape[0], 1) and bool((mean > 0).all()):
+        base = torch.lgamma(support[None, :] + dispersion) - torch.lgamma(dispersion) - torch.lgamma(support[None, :] + 1)   # [B, C]
+        base = torch.where(support[None, :] <= cap.view(-1, 1), base, torch.full_like(base, NEG_INF))
+        x = torch.log(mean) - torch.log(mean + dispersion)                                                                  # [B, K]
+        lognorm = -dispersion * torch.log1p(mean / dispersion) + torch.logsumexp(base[:, None, :] + support * x[:, :, None], dim=-1)
+        kk = k.to(DTYPE).expand(shape)
+        logp = negative_binomial_logpmf(kk, mean, dispersion) - lognorm
+        valid = (kk <= cap.view(-1, *([1] * (len(shape) - 1)))) & (kk >= 0)
+        return torch.where(valid, logp, torch.full_like(logp, NEG_INF))
     disp3 = dispersion.unsqueeze(-1) if dispersion.dim() == len(shape) else dispersion   # per-row [B, 1] → [B, 1, 1]
     logs = negative_binomial_logpmf(support.view(*([1] * len(shape)), -1),  # [B, K, C]
                                     mean.unsqueeze(-1), disp3)
@@ -313,7 +328,8 @@ class DifferentiableSeasonLikelihood:
 
     def __init__(self, model: InterceptOnlySeasonModel | None = None, kernel: OnceRoundedMinutesKernel | None = None,
                  accuracy: NumericalAccuracy | None = None, quadrature_nodes: int = 32, *,
-                 regulation_minutes: float = 40.0, overtime_minutes: float = 5.0, foul_limit_per_game: int = 5):
+                 regulation_minutes: float = 40.0, overtime_minutes: float = 5.0, foul_limit_per_game: int = 5,
+                 vectorized: bool = True):
         if quadrature_nodes < 2:
             raise ValueError("At least two quadrature nodes are required")
         self.model = model
@@ -326,9 +342,39 @@ class DifferentiableSeasonLikelihood:
         x, w = np.polynomial.legendre.leggauss(quadrature_nodes)
         self.t = torch.tensor((x + 1.0) / 2.0, dtype=DTYPE)          # nodes in (0, 1)
         self.logw = torch.log(torch.tensor(w / 2.0, dtype=DTYPE))    # weights on [0, 1]
+        # ``vectorized`` evaluates the same law with far fewer tensor operations (2026-11-16): the count types in one
+        # call, the three quadrature pieces and the atom in one production evaluation, and every row whose overtime is
+        # observed in one component call. ``vectorized=False`` is the original loop, kept as the reference the
+        # equivalence test compares against; the two agree to floating-point reassociation.
+        self.vectorized = bool(vectorized)
+        self._count_index = {name: j for j, name in enumerate(COUNT_NAMES)}
+        self._rate_index = {name: i for i, name in enumerate(RATE_NAMES)}
+        self._make_index = {name: i for i, name in enumerate(MAKE_ATTEMPTS)}
+        plain = [name for name in COUNT_NAMES if name in self._rate_index and name != "PF"]
+        self._nb_cols = [self._count_index[name] for name in plain]
+        self._nb_rates = [self._rate_index[name] for name in plain]
 
     # -- production at latent minutes m [B, K] ------------------------------------
     def _production_logpmf(self, counts, m, games, c):
+        return self._production_logpmf_vectorized(counts, m, games, c) if self.vectorized else self._production_logpmf_loop(counts, m, games, c)
+
+    def _production_logpmf_vectorized(self, counts, m, games, c):
+        """The same sum as the loop below with one negative-binomial call for the nine untruncated count types."""
+        exposure = m / self.regulation()                                    # [B, K]
+        kf = counts.to(DTYPE)
+        total = torch.zeros_like(m)
+        for name, attempt in MAKE_ATTEMPTS.items():                         # makes do not depend on the latent minutes
+            i = self._make_index[name]
+            total = total + beta_binomial_logpmf(kf[:, self._count_index[name], None], kf[:, self._count_index[attempt], None],
+                                                 c["makes_alpha"][:, i, None], c["makes_beta"][:, i, None])
+        k = kf[:, self._nb_cols][:, None, :]                                # [B, 1, R]
+        rates, disps = c["rates"][:, self._nb_rates][:, None, :], c["dispersions"][:, self._nb_rates][:, None, :]
+        total = total + negative_binomial_logpmf(k, exposure[:, :, None] * rates, disps).sum(dim=-1)
+        i = self._rate_index["PF"]
+        return total + truncated_negative_binomial_logpmf(kf[:, self._count_index["PF"], None], exposure * c["rates"][:, i, None],
+                                                          c["dispersions"][:, i, None], self.foul_limit_per_game * games, fast=True)
+
+    def _production_logpmf_loop(self, counts, m, games, c):
         exposure = m / self.regulation()
         total = torch.zeros_like(m)
         rate_index = {name: i for i, name in enumerate(RATE_NAMES)}
@@ -350,6 +396,25 @@ class DifferentiableSeasonLikelihood:
 
     def regulation(self):
         return self.regulation_minutes
+
+    def overtime_terms_for_tail(self, batch: SeasonBatch, nu: torch.Tensor, tolerance: float, margin: int = 6, cap: int = 128) -> torch.Tensor:
+        """Per-row overtime term counts for optimization — the fixed-count mode of ``log_prob`` (2026-11-16).
+
+        The adaptive sum stops a row when the omitted Poisson mass is small *relative to the row's joint probability*,
+        bounding every omitted component by one. That bound is rigorous and very loose: a season's joint probability is
+        of order e^-60, so a row with unobserved overtime evaluates about thirty terms where the mass beyond the
+        thirteenth is below 1e-8 of the total. For gradient steps this returns instead the smallest count whose omitted
+        Poisson mass Pr(O > o) is at most ``tolerance``, never fewer than ``margin`` terms beyond the first overtime
+        count that can hold the recorded minutes. Scoring keeps the adaptive rule. No gradient flows through the counts."""
+        with torch.no_grad():
+            g = batch.games.to(DTYPE)
+            mu = (g * nu.detach().to(DTYPE)).clamp(min=1e-12)
+            needed = torch.ceil(((batch.recorded_minutes - g * self.regulation()) / self.overtime_minutes).clamp(min=0)).long()
+            grid = torch.arange(cap, dtype=DTYPE)
+            tail = torch.special.gammainc(grid[None, :] + 1.0, mu[:, None])            # Pr(O > o) for o = 0 .. cap - 1
+            ok = tail <= tolerance
+            first = torch.where(ok.any(dim=1), ok.to(torch.long).argmax(dim=1), torch.full((len(mu),), cap - 1, dtype=torch.long))
+            return torch.maximum(first + 1, needed + 1 + margin)
 
     # -- one overtime component: log of (1-pi_m)∫cell + atom, per element ----------
     def _component(self, batch: SeasonBatch, maximum: torch.Tensor, c: dict, production: bool = True, moment: bool = False):
@@ -391,8 +456,26 @@ class DifferentiableSeasonLikelihood:
         t, logw = self.t[None, :], self.logw[None, :]
         games = batch.games
 
-        def logP(u):  # production at latent minutes maximum*u, [B, K]; optionally times u for the first moment
-            out = torch.zeros_like(u) if not production else self._production_logpmf(batch.counts, maximum[:, None] * u, games, c)
+        K = self.nodes
+        stacked = None
+        if production and self.vectorized:
+            # One production evaluation at [B, 3K + 1] latent fractions: the nodes of pieces A, B and C (the same
+            # expressions as below) and u = 1 for the atom.
+            width_ = (hi_t - lo_t).clamp(min=1e-300)
+            h_ = torch.where(hi_t < 1, hi_t, torch.full_like(hi_t, 0.5)).clamp(min=1e-300)
+            l_ = torch.where(lo_t > 0, lo_t, torch.full_like(lo_t, 0.5))
+            span_ = (1 - l_).clamp(min=1e-300)
+            fractions = torch.cat([lo_t[:, None] + width_[:, None] * t, h_[:, None] * t ** (1.0 / alpha)[:, None],
+                                   1 - span_[:, None] * t ** (1.0 / beta)[:, None], torch.ones(B, 1, dtype=DTYPE)], dim=1)
+            stacked = self._production_logpmf(batch.counts, maximum[:, None] * fractions, games, c)
+
+        def logP(u, piece: int):  # production at latent minutes maximum*u, [B, K]; optionally times u for the first moment
+            if not production:
+                out = torch.zeros_like(u)
+            elif stacked is not None:
+                out = stacked[:, piece * K:(piece + 1) * K]
+            else:
+                out = self._production_logpmf(batch.counts, maximum[:, None] * u, games, c)
             return out + torch.log(u.clamp(min=1e-300)) if moment else out
 
         # Piece A: interior cells (0 < lo, hi < 1), plain Gauss-Legendre in u.
@@ -400,7 +483,7 @@ class DifferentiableSeasonLikelihood:
         width = (hi_t - lo_t).clamp(min=1e-300)
         u_a = lo_t[:, None] + width[:, None] * t
         log_a = (torch.log(width)[:, None] + a1 * torch.log(u_a) + b1 * torch.log1p(-u_a)
-                 - lbeta + logP(u_a) + logw)
+                 - lbeta + logP(u_a, 0) + logw)
         piece_a = torch.logsumexp(log_a, dim=1)
 
         # Piece B: lower endpoint, u = h t^{1/alpha}, h = hi (or 1/2 when the cell spans [0,1]).
@@ -408,7 +491,7 @@ class DifferentiableSeasonLikelihood:
         h = torch.where(hi_t < 1, hi_t, torch.full_like(hi_t, 0.5)).clamp(min=1e-300)
         u_b = h[:, None] * t ** (1.0 / alpha)[:, None]
         log_b = ((alpha * torch.log(h) - torch.log(alpha))[:, None] - lbeta
-                 + b1 * torch.log1p(-u_b) + logP(u_b) + logw)
+                 + b1 * torch.log1p(-u_b) + logP(u_b, 1) + logw)
         piece_b = torch.logsumexp(log_b, dim=1)
 
         # Piece C: upper endpoint, 1-u = (1-l) t^{1/beta}, l = lo (or 1/2 when the cell spans [0,1]).
@@ -417,7 +500,7 @@ class DifferentiableSeasonLikelihood:
         span = (1 - l).clamp(min=1e-300)
         u_c = 1 - span[:, None] * t ** (1.0 / beta)[:, None]
         log_c = ((beta * torch.log(span) - torch.log(beta))[:, None] - lbeta
-                 + a1 * torch.log(u_c) + logP(u_c) + logw)
+                 + a1 * torch.log(u_c) + logP(u_c, 2) + logw)
         piece_c = torch.logsumexp(log_c, dim=1)
 
         zero = torch.full_like(piece_a, LOG_ZERO)
@@ -428,8 +511,12 @@ class DifferentiableSeasonLikelihood:
         continuous = torch.log1p(-pi_m) + continuous
 
         # Atom at full available minutes, weighted by production at maximum.
-        prod_max = (self._production_logpmf(batch.counts, maximum[:, None], games, c).squeeze(1) if production
-                    else torch.zeros_like(piece_a))
+        if not production:
+            prod_max = torch.zeros_like(piece_a)
+        elif stacked is not None:
+            prod_max = stacked[:, 3 * K]
+        else:
+            prod_max = self._production_logpmf(batch.counts, maximum[:, None], games, c).squeeze(1)
         atom_log = torch.where(atom_t, torch.log(pi_m) + _finite_log(prod_max), zero)
         return torch.where(valid_t, torch.logaddexp(continuous, atom_log), zero)
 
@@ -554,13 +641,29 @@ class DifferentiableSeasonLikelihood:
         terms_used = torch.zeros(B, dtype=torch.long)
         bounds = torch.zeros(B, dtype=DTYPE)
         tails = torch.full((B,), NEG_INF, dtype=DTYPE)
+        pending = known                                   # rows with observed overtime still to be scored inside the loop
+        if self.vectorized and bool(known.any()):
+            # Every row with observed overtime contributes the single term o = O: all of them in one component call,
+            # each at its own available maximum, instead of one call per distinct overtime count.
+            idx = known.nonzero(as_tuple=False).squeeze(1)
+            o_row = observed[idx]
+            sub = batch.subset(idx)
+            c_sub = {k: v[idx] for k, v in c.items()}
+            maximum = sub.games.to(DTYPE) * self.regulation() + self.overtime_minutes * o_row.to(DTYPE)
+            component = self._component(sub, maximum, c_sub, production=production, moment=moment)
+            if moment:
+                component = component + torch.log(maximum)
+            updated = torch.logaddexp(log_total[idx], _finite_log(poisson_logpmf(o_row.to(DTYPE), mean[idx])) + component)
+            log_total = log_total.index_put((idx,), updated)
+            terms_used[idx] = o_row + 1
+            pending = torch.zeros_like(known)
         for o in range(limit):
             if per_row is not None:
                 active = unknown & (per_row > o)
-            current = active | (known & (observed == o))
+            current = active | (pending & (observed == o))
             idx = current.nonzero(as_tuple=False).squeeze(1)
             if idx.numel() == 0:
-                if not bool(active.any()) and not bool((known & (observed >= o)).any()):
+                if not bool(active.any()) and not bool((pending & (observed >= o)).any()):
                     break
                 continue
             sub = batch.subset(idx)
